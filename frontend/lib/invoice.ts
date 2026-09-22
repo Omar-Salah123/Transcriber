@@ -6,7 +6,9 @@ export type InvoiceItem = {
   description: string | null;
   quantity_text: string | null;
   unit_price_text: string | null;
+  unit_price_interpreted_text?: string | null;
   written_amount_text: string | null;
+  written_amount_interpreted_text?: string | null;
   calculated_amount?: string | null;
   unresolved_fields: string[];
   review_note: string | null;
@@ -21,6 +23,7 @@ export type InvoiceRecord = {
   seller: string | null;
   customer: string | null;
   written_total_text: string | null;
+  written_total_interpreted_text?: string | null;
   calculated_total: string | null;
   review_notes: string | null;
   review_acknowledged: boolean;
@@ -47,6 +50,7 @@ export function draftPayload(invoice: InvoiceRecord) {
     seller: invoice.seller,
     customer: invoice.customer,
     written_total_text: invoice.written_total_text,
+    written_total_interpreted_text: invoice.written_total_interpreted_text,
     review_notes: invoice.review_notes,
     unresolved_fields: invoice.unresolved_fields,
     items: invoice.items.map(
@@ -54,14 +58,18 @@ export function draftPayload(invoice: InvoiceRecord) {
         description,
         quantity_text,
         unit_price_text,
+        unit_price_interpreted_text,
         written_amount_text,
+        written_amount_interpreted_text,
         unresolved_fields,
         review_note,
       }) => ({
         description,
         quantity_text,
         unit_price_text,
+        unit_price_interpreted_text,
         written_amount_text,
+        written_amount_interpreted_text,
         unresolved_fields,
         review_note,
       }),

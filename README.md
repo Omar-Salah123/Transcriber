@@ -75,7 +75,11 @@ Do not expose this single-operator application to a network or the internet.
 2. Extract one invoice or all waiting/failed invoices. This sends images to Gemini
    and may incur API charges. Processing is sequential; the interface polls progress.
 3. Compare the image with every field and row. Preserve uncertain date text, Arabic
-   text, and identifiers such as `000081`. Add/remove rows and record review notes.
+   text, and identifiers such as `000081`. For this shop's thousands shorthand,
+   compare the visible marks with separate interpreted price/amount/total fields.
+   Interpreted values use ungrouped ASCII digits (for example `70000`); they are
+   suggestions and require acknowledgment before confirmation. Add/remove rows
+   and record review notes.
 4. **Save draft** before confirming. Saved values survive refresh/restart; unsaved
    changes do not. Calculations and warnings refresh after saving.
 5. Review and acknowledge every remaining warning, then confirm. Repeated
@@ -83,6 +87,8 @@ Do not expose this single-operator application to a network or the internet.
 6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
 
 Unknowns remain blank. Written amounts stay separate from calculated amounts.
+The source transcription stays separate from any shorthand interpretation;
+calculations use a present interpretation only after validating its numeric form.
 Arabic/Persian numerals and well-formed thousands separators are supported;
 ambiguous numeric strings are flagged rather than guessed. Decimal inputs support
 up to four fractional digits. Products requiring more precision or exceeding the

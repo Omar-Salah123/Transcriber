@@ -22,13 +22,23 @@ class InvoiceReviewService
         return $number->abs()->isLessThan('1000000000000000') ? $number : null;
     }
 
+    private function monetaryValue(?string $source, ?string $interpreted): ?BigDecimal
+    {
+        if (filled($interpreted)) {
+            // The model's shorthand expansion is a whole number, not a decimal guess.
+            return preg_match('/^[0-9]+$/D', $interpreted) ? $this->decimal($interpreted) : null;
+        }
+
+        return $this->decimal($source);
+    }
+
     public function refreshCalculatedAmounts(Invoice $invoice): void
     {
         $total = BigDecimal::of(0);
         $complete = $invoice->items->isNotEmpty();
         foreach ($invoice->items as $item) {
             $quantity = $this->decimal($item->quantity_text);
-            $price = $this->decimal($item->unit_price_text);
+            $price = $this->monetaryValue($item->unit_price_text, $item->unit_price_interpreted_text);
             $line = $quantity?->multipliedBy($price ?? 0)->stripTrailingZeros();
             if ($quantity === null || $price === null || $line->getScale() > 4 || $line->abs()->isGreaterThanOrEqualTo('1000000000000000')) {
                 $line = null;
@@ -62,16 +72,29 @@ class InvoiceReviewService
         }
         foreach ($invoice->items as $index => $item) {
             foreach (['description', 'quantity_text', 'unit_price_text', 'written_amount_text'] as $field) {
+                $interpreted = match ($field) {
+                    'unit_price_text' => $item->unit_price_interpreted_text,
+                    'written_amount_text' => $item->written_amount_interpreted_text,
+                    default => null,
+                };
                 if (blank($item->{$field})) {
                     $add("items.$index.$field", 'قيمة مفقودة في السطر '.$item->row_order.': '.$field);
-                } elseif ($field !== 'description' && $this->decimal($item->{$field}) === null) {
+                } elseif ($field !== 'description' && $this->monetaryValue($item->{$field}, $interpreted) === null) {
                     $add("items.$index.$field", 'رقم غير صالح أو خارج النطاق في السطر '.$item->row_order);
+                }
+            }
+            foreach (['unit_price_interpreted_text' => 'سعر الوحدة', 'written_amount_interpreted_text' => 'المبلغ المكتوب'] as $field => $label) {
+                if (filled($item->{$field})) {
+                    $message = $this->monetaryValue(null, $item->{$field}) === null
+                        ? 'تفسير غير صالح لـ'.$label.' في السطر '.$item->row_order
+                        : 'راجع تفسير اختصار الآلاف لـ'.$label.' في السطر '.$item->row_order;
+                    $add("items.$index.$field", $message);
                 }
             }
             foreach ($item->unresolved_fields ?? [] as $field) {
                 $add("items.$index.$field", 'قيمة غير مؤكدة في السطر '.$item->row_order.': '.$field);
             }
-            $written = $this->decimal($item->written_amount_text);
+            $written = $this->monetaryValue($item->written_amount_text, $item->written_amount_interpreted_text);
             if ($written !== null && $item->calculated_amount !== null && ! $written->isEqualTo($item->calculated_amount)) {
                 $add("items.$index.written_amount_text", 'المبلغ المكتوب يختلف عن المحسوب في السطر '.$item->row_order);
             }
@@ -82,7 +105,11 @@ class InvoiceReviewService
                 $add("items.$index.review_note", $item->review_note);
             }
         }
-        $written = $this->decimal($invoice->written_total_text);
+        $written = $this->monetaryValue($invoice->written_total_text, $invoice->written_total_interpreted_text);
+        if (filled($invoice->written_total_interpreted_text)) {
+            $message = $written === null ? 'تفسير الإجمالي المكتوب غير صالح' : 'راجع تفسير اختصار الآلاف للإجمالي المكتوب';
+            $add('written_total_interpreted_text', $message);
+        }
         if (filled($invoice->written_total_text) && $written === null) {
             $add('written_total_text', 'الإجمالي المكتوب غير صالح للحساب');
         }

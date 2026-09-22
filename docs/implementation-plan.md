@@ -14,7 +14,10 @@ availability and the 10-invoice accuracy pilot remain operator acceptance work.
   candidates plus raw messages. Document/model text is data, never instructions.
 - Numeric-looking source values remain nullable text. Calculations use Brick Math
   decimals, stored as text to avoid SQLite floating-point coercion. No source amount
-  is overwritten. Invalid/missing values or unsupported precision produce warnings.
+  is overwritten. Separate optional interpreted values represent a reviewed
+  thousands-shorthand reading for unit prices, line amounts, and invoice totals.
+  Their presence creates an acknowledgment warning. Invalid/missing values or
+  unsupported precision produce warnings.
 - `original_extraction` and `raw_model_output` are independent of edits;
   `extraction_attempts` retains successful/failed responses. Private outputs are
   omitted from browser resources. No provider response is written to application logs.
@@ -37,9 +40,14 @@ local frontend origins are accepted. This is not an authenticated multi-user API
 | `GET /api/exports/invoices` | Download confirmed database records as `.xlsx`; 422 if none |
 
 Invoice header fields: `invoice_number`, `date_text`, `seller`, `customer`,
-`written_total_text`, `review_notes`, `unresolved_fields`. Items contain
-`description`, `quantity_text`, `unit_price_text`, `written_amount_text`,
-`unresolved_fields`, `review_note`; array order becomes `row_order` starting at 1.
+`written_total_text`, optional `written_total_interpreted_text`, `review_notes`,
+`unresolved_fields`. Items contain `description`, `quantity_text`,
+`unit_price_text`, optional `unit_price_interpreted_text`, `written_amount_text`,
+optional `written_amount_interpreted_text`, `unresolved_fields`, `review_note`;
+array order becomes `row_order` starting at 1. Interpretation fields use
+ungrouped ASCII digits for the shop's clear thousands shorthand only. Changing
+the written total in a save without supplying a new interpretation clears its
+previous interpretation.
 The server supplies IDs, status, calculations, version, and warnings `{field,message}`.
 Only whitelisted validated fields are accepted for edits. A stale version returns 409.
 
@@ -69,7 +77,8 @@ available raw output. It rejects browser Origin headers. Credentials stay in Pyt
 
 Two Arabic worksheets: **الفواتير** and **الأصناف**, linked by internal invoice ID.
 Both use RTL, filters, frozen headers, typed amounts, literal identifiers/text,
-blank missing values, review notes, and separately labeled derived totals.
+blank missing values, review notes, separately labeled shorthand interpretations,
+and separately labeled derived totals.
 Export reads a database snapshot of confirmed invoices and items.
 
 Automated checks cover image validation, deduplication, decimal parsing, blanks,

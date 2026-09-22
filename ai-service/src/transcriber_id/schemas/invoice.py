@@ -17,8 +17,20 @@ class ExtractedInvoiceItem(BaseModel):
     description: str | None = Field(default=None, description="Arabic item description as written")
     quantity_text: str | None = Field(default=None, description="Quantity exactly as written")
     unit_price_text: str | None = Field(default=None, description="Unit price exactly as written")
+    unit_price_interpreted_text: str | None = Field(
+        default=None,
+        description=(
+            "Ungrouped ASCII digits for a clear thousands-shorthand unit price; otherwise null"
+        ),
+    )
     written_amount_text: str | None = Field(
         default=None, description="Line amount exactly as written"
+    )
+    written_amount_interpreted_text: str | None = Field(
+        default=None,
+        description=(
+            "Ungrouped ASCII digits for a clear thousands-shorthand line amount; otherwise null"
+        ),
     )
     unresolved_fields: list[str] = Field(default_factory=list)
 
@@ -36,6 +48,12 @@ class ExtractedInvoice(BaseModel):
     customer: str | None = Field(default=None, description="Customer name")
     written_total_text: str | None = Field(
         default=None, description="Invoice total exactly as written"
+    )
+    written_total_interpreted_text: str | None = Field(
+        default=None,
+        description=(
+            "Ungrouped ASCII digits for a clear thousands-shorthand invoice total; otherwise null"
+        ),
     )
     items: list[ExtractedInvoiceItem] = Field(default_factory=list)
     unresolved_fields: list[str] = Field(default_factory=list)
