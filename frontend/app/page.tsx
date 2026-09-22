@@ -201,28 +201,42 @@ export default function Home() {
             Gemini.
           </p>
         </div>
-        <button
-          className="export-button"
-          disabled={!confirmed || busy || dirty}
-          onClick={() =>
-            void run(async () => {
-              const response = await fetch("/api/exports/invoices", {
-                headers: { Accept: "application/json" },
-                cache: "no-store",
-              });
-              if (!response.ok) throw new Error("تعذر تصدير الفواتير المؤكدة");
-              const url = URL.createObjectURL(await response.blob());
-              const anchor = document.createElement("a");
-              anchor.href = url;
-              anchor.download = "الفواتير-المؤكدة.xlsx";
-              anchor.click();
-              setTimeout(() => URL.revokeObjectURL(url), 1000);
-              setNotice("تم تنزيل الفواتير المؤكدة المحفوظة فقط.");
-            })
-          }
-        >
-          تنزيل Excel ({confirmed})
-        </button>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {draft && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => window.print()}
+              title="طباعة الفاتورة الحالية كملف PDF"
+              style={{ padding: "12px 17px", minHeight: "44px" }}
+            >
+              طباعة PDF
+            </button>
+          )}
+          <button
+            className="export-button"
+            disabled={!confirmed || busy || dirty}
+            onClick={() =>
+              void run(async () => {
+                const response = await fetch("/api/exports/invoices", {
+                  headers: { Accept: "application/json" },
+                  cache: "no-store",
+                });
+                if (!response.ok)
+                  throw new Error("تعذر تصدير الفواتير المؤكدة");
+                const url = URL.createObjectURL(await response.blob());
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = "الفواتير-المؤكدة.xlsx";
+                anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                setNotice("تم تنزيل الفواتير المؤكدة المحفوظة فقط.");
+              })
+            }
+          >
+            تنزيل Excel ({confirmed})
+          </button>
+        </div>
       </section>
       <section className="summary-grid">
         <article className="summary-card blue">
@@ -613,6 +627,14 @@ export default function Home() {
                   </label>
                 )}
               <div className="footer-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => window.print()}
+                  title="طباعة الفاتورة الحالية كملف PDF"
+                >
+                  طباعة PDF
+                </button>
                 <button
                   className="secondary-button"
                   disabled={
