@@ -9,8 +9,6 @@ from google import genai
 def load_configuration() -> None:
     service_root = Path(__file__).resolve().parents[2]
     load_dotenv(service_root / ".env")
-    # Support the original root configuration without copying credentials.
-    load_dotenv(service_root.parent / ".env")
 
 
 def main() -> None:
