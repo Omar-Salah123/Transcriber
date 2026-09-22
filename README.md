@@ -3,9 +3,13 @@
 A local Arabic invoice review app, intended to turn roughly 80 photographed,
 handwritten invoices into a combined Excel workbook.
 
-**Status: repository scaffold only.** The Arabic landing page runs. Upload,
-extraction, review, persistence, and Excel export are planned and not implemented.
-The placeholder makes no API calls and does not need an API key.
+**Status: front-end review prototype plus backend scaffolding.** The Next.js
+frontend now provides an Arabic right-to-left review workspace: local image
+selection, an editable invoice and item table, an acknowledgement gate,
+confirmation state, and a confirmed-only `.xlsx` download. It deliberately
+does not call an AI provider or persist client data yet. The Laravel and Python
+services are still scaffolds for the planned secure extraction and persistence
+work.
 
 ## Intended workflow
 
@@ -19,6 +23,19 @@ Arabic handwriting accuracy must be evaluated on representative invoices before
 processing the full batch. Human review is a required part of the workflow.
 
 ## Quick start
+
+### Next.js review interface
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:3000`. See [frontend/README.md](frontend/README.md)
+for what is usable now and the required server-side work before processing real
+client invoices.
+
+### Original Python scaffold
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then
 run these commands from the repository root:
