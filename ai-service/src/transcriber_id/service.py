@@ -29,7 +29,7 @@ class InvoiceAgentHandler(BaseHTTPRequestHandler):
     server_version = "InvoiceAgent/1.0"
 
     def do_POST(self) -> None:  # noqa: N802 - HTTP handler naming is prescribed.
-        self.connection.settimeout(10)
+        self.connection.settimeout(450)
         if self.headers.get("X-Invoice-Service") != "laravel" or self.headers.get("Origin"):
             self._send_json(HTTPStatus.FORBIDDEN, {"detail": "Private service"})
             return

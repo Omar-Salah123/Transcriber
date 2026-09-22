@@ -3,10 +3,9 @@ from __future__ import annotations
 import base64
 import json
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage
 from PIL import Image
 from transcriber_id.agents.invoice_graph import build_invoice_graph
 from transcriber_id.extraction.gemini import ExtractionFailure, extract_from_gemini
@@ -28,15 +27,14 @@ def state(media_type: str = "image/png") -> dict:
 
 
 def test_malformed_structured_output_preserves_tool_calls() -> None:
-    message = AIMessage(
-        content="",
-        tool_calls=[{"name": "invoice", "args": {"invoice_number": "000081"}, "id": "test"}],
+    raw_payload = json.dumps(
+        {"tool_calls": [{"name": "invoice", "args": {"invoice_number": "000081"}, "id": "test"}]}
     )
-    with patch("transcriber_id.extraction.gemini.ChatGoogleGenerativeAI") as model:
-        model.return_value.with_structured_output.return_value.invoke.return_value = {
-            "parsed": None,
-            "raw": message,
-        }
+    mock_client = MagicMock()
+    mock_response = MagicMock(text=raw_payload, parsed=None)
+    mock_client.models.generate_content.return_value = mock_response
+
+    with patch("transcriber_id.extraction.gemini.create_gemini_client", return_value=mock_client):
         with pytest.raises(ExtractionFailure) as caught:
             extract_from_gemini(
                 b"synthetic", "image/png", api_key="test-only", model_name="mock-model"
