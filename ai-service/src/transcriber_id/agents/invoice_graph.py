@@ -1,0 +1,105 @@
+"""A small, auditable LangGraph workflow for one invoice image."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from io import BytesIO
+from typing import TypedDict
+
+from langgraph.graph import END, START, StateGraph
+from PIL import Image, UnidentifiedImageError
+
+from transcriber_id.extraction import extract_from_gemini
+from transcriber_id.schemas import ExtractedInvoice
+
+ModelExtractor = Callable[[bytes, str], tuple[ExtractedInvoice, str]]
+
+
+class InvoiceGraphState(TypedDict):
+    image_bytes: bytes
+    media_type: str
+    source_filename: str
+    extraction: ExtractedInvoice | None
+    raw_model_output: str | None
+    warnings: list[str]
+    errors: list[str]
+
+
+def _validate_image(state: InvoiceGraphState) -> dict[str, list[str]]:
+    """Reject unreadable images before any chargeable model request."""
+
+    try:
+        with Image.open(BytesIO(state["image_bytes"])) as image:
+            image.verify()
+    except (UnidentifiedImageError, OSError):
+        return {"errors": ["The uploaded file is not a readable invoice image."]}
+    return {"errors": []}
+
+
+def _after_validation(state: InvoiceGraphState) -> str:
+    return "stop" if state["errors"] else "extract"
+
+
+def _extract_with_gemini(extractor: ModelExtractor) -> Callable[[InvoiceGraphState], dict[str, object]]:
+    def extract(state: InvoiceGraphState) -> dict[str, object]:
+        try:
+            extraction, raw_model_output = extractor(state["image_bytes"], state["media_type"])
+        except Exception as error:  # Do not expose model internals to the browser.
+            return {"errors": [f"Extraction failed: {type(error).__name__}"], "warnings": []}
+        return {
+            "extraction": extraction,
+            "raw_model_output": raw_model_output,
+            "warnings": list(extraction.unresolved_fields),
+            "errors": [],
+        }
+
+    return extract
+
+
+def _validate_extraction(state: InvoiceGraphState) -> dict[str, object]:
+    """Apply Pydantic validation again at the graph boundary."""
+
+    if state.get("extraction") is None:
+        return {"errors": ["Extraction returned no invoice data."]}
+    try:
+        extraction = ExtractedInvoice.model_validate(state["extraction"])
+    except Exception:
+        return {"errors": ["Extraction did not match the invoice schema."]}
+    return {"extraction": extraction, "errors": state["errors"]}
+
+
+def build_invoice_graph(extractor: ModelExtractor | None = None):
+    """Build the graph lazily; default extraction creates Gemini clients on invoke."""
+
+    graph = StateGraph(InvoiceGraphState)
+    graph.add_node("validate_image", _validate_image)
+    graph.add_node("extract_with_gemini", _extract_with_gemini(extractor or extract_from_gemini))
+    graph.add_node("validate_extraction", _validate_extraction)
+    graph.add_edge(START, "validate_image")
+    graph.add_conditional_edges(
+        "validate_image",
+        _after_validation,
+        {"extract": "extract_with_gemini", "stop": END},
+    )
+    graph.add_edge("extract_with_gemini", "validate_extraction")
+    graph.add_edge("validate_extraction", END)
+    return graph.compile()
+
+
+def extract_invoice_image(
+    image_bytes: bytes, media_type: str, source_filename: str
+) -> InvoiceGraphState:
+    """Run one request through the local workflow."""
+
+    graph = build_invoice_graph()
+    return graph.invoke(
+        {
+            "image_bytes": image_bytes,
+            "media_type": media_type,
+            "source_filename": source_filename,
+            "extraction": None,
+            "raw_model_output": None,
+            "warnings": [],
+            "errors": [],
+        }
+    )
