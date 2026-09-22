@@ -119,6 +119,64 @@ class InvoiceWorkflowTest extends TestCase
         $this->postJson($url.'/extract')->assertConflict();
     }
 
+    public function test_thousands_shorthand_interpretations_remain_separate_and_require_review(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $url = '/api/invoices/'.$invoice['id'];
+        $this->postJson($url.'/extract')->assertAccepted();
+        $model = Invoice::findOrFail($invoice['id']);
+        $candidate = $this->candidate();
+        $candidate['written_total_text'] = '١٤٠،~~~';
+        $candidate['written_total_interpreted_text'] = '140000';
+        $candidate['items'][0]['quantity_text'] = '٢';
+        $candidate['items'][0]['unit_price_text'] = '٧٠،~~~';
+        $candidate['items'][0]['unit_price_interpreted_text'] = '70000';
+        $candidate['items'][0]['written_amount_text'] = '١٤٠،~~~';
+        $candidate['items'][0]['written_amount_interpreted_text'] = '140000';
+        Http::fake(['*' => Http::response(['extraction' => $candidate, 'raw_model_output' => 'synthetic response'])]);
+
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+        $review = $this->getJson($url)->assertOk()
+            ->assertJsonPath('written_total_text', '١٤٠،~~~')
+            ->assertJsonPath('written_total_interpreted_text', '140000')
+            ->assertJsonPath('items.0.unit_price_text', '٧٠،~~~')
+            ->assertJsonPath('items.0.unit_price_interpreted_text', '70000')
+            ->assertJsonPath('items.0.written_amount_interpreted_text', '140000')
+            ->assertJsonPath('items.0.calculated_amount', '140000.0000')
+            ->json();
+        $this->assertContains('items.0.unit_price_interpreted_text', array_column($review['warnings'], 'field'));
+        $this->assertContains('written_total_interpreted_text', array_column($review['warnings'], 'field'));
+        $this->postJson($url.'/confirm', ['version' => $review['version'], 'acknowledged' => false])->assertUnprocessable();
+        $this->postJson($url.'/confirm', ['version' => $review['version'], 'acknowledged' => true])->assertOk()->assertJsonPath('status', 'confirmed');
+
+        $path = tempnam(sys_get_temp_dir(), 'shorthand-export-');
+        try {
+            app(InvoiceWorkbook::class)->write(Invoice::with('items')->get(), $path);
+            $book = IOFactory::load($path);
+            $this->assertSame('١٤٠،~~~', $book->getSheet(0)->getCell('F2')->getValue());
+            $this->assertSame(140000.0, $book->getSheet(0)->getCell('L2')->getValue());
+            $this->assertSame('٧٠،~~~', $book->getSheet(1)->getCell('E2')->getValue());
+            $this->assertSame(70000.0, $book->getSheet(1)->getCell('J2')->getValue());
+            $book->disconnectWorksheets();
+        } finally {
+            unlink($path);
+        }
+
+        $edited = $candidate;
+        $edited['written_total_text'] = '١٥٠،~~~';
+        unset($edited['written_total_interpreted_text']);
+        $edited['items'][0]['unit_price_text'] = '٧٥،~~~';
+        $edited['items'][0]['unit_price_interpreted_text'] = null;
+        $saved = $this->putJson($url, $edited + ['version' => $review['version']])->assertOk()->json();
+        $this->assertNull($saved['written_total_interpreted_text']);
+        $this->assertNull($saved['items'][0]['calculated_amount']);
+        $this->assertNull($saved['items'][0]['unit_price_interpreted_text']);
+        $this->assertContains('written_total_text', array_column($saved['warnings'], 'field'));
+        $this->assertSame('synthetic response', $model->fresh()->raw_model_output);
+        $this->assertSame('70000', $model->fresh()->original_extraction['items'][0]['unit_price_interpreted_text']);
+    }
+
     public function test_failed_response_is_preserved_and_retry_is_possible(): void
     {
         Queue::fake();

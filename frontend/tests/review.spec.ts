@@ -141,3 +141,84 @@ test("polling never overwrites unsaved review text", async ({ page }) => {
     "000099",
   );
 });
+
+test("review shows shorthand interpretations and clears a stale suggestion after a source edit", async ({
+  page,
+}) => {
+  const saved: InvoiceRecord = {
+    id: "shorthand",
+    version: 1,
+    source_filename: "synthetic.png",
+    status: "review",
+    invoice_number: "000081",
+    date_text: null,
+    seller: null,
+    customer: null,
+    written_total_text: "١٤٠،~~~",
+    written_total_interpreted_text: "140000",
+    calculated_total: "140000.0000",
+    review_notes: null,
+    review_acknowledged: false,
+    unresolved_fields: [],
+    extraction_error: null,
+    image_url: "",
+    items: [
+      {
+        description: "صنف تجريبي",
+        quantity_text: "٢",
+        unit_price_text: "٧٠،~~~",
+        unit_price_interpreted_text: "70000",
+        written_amount_text: "١٤٠،~~~",
+        written_amount_interpreted_text: "140000",
+        calculated_amount: "140000.0000",
+        unresolved_fields: [],
+        review_note: null,
+      },
+    ],
+    warnings: [
+      {
+        field: "items.0.unit_price_interpreted_text",
+        message: "راجع تفسير اختصار الآلاف لسعر الوحدة في السطر 1",
+      },
+    ],
+  };
+  await page.route("**/api/invoices", (route) =>
+    route.fulfill({ json: [saved] }),
+  );
+  await page.route("**/api/invoices/shorthand", async (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.items[0].unit_price_text).toBe("٧٥،~~~");
+    expect(body.items[0].unit_price_interpreted_text).toBeNull();
+    await route.fulfill({ json: { ...saved, ...body, version: 2 } });
+  });
+
+  await page.goto("/");
+  await expect(
+    page.getByLabel("تفسير الإجمالي (أرقام 0-9 بلا فواصل)"),
+  ).toHaveValue("140000");
+  await expect(page.getByLabel("تفسير سعر الوحدة (0-9) السطر 1")).toHaveValue(
+    "70000",
+  );
+  const notesWidth = await page
+    .locator(".items-table th")
+    .nth(7)
+    .evaluate((cell) => cell.getBoundingClientRect().width);
+  const deleteWidth = await page
+    .locator(".items-table th")
+    .nth(8)
+    .evaluate((cell) => cell.getBoundingClientRect().width);
+  expect(notesWidth).toBeGreaterThan(100);
+  expect(deleteWidth).toBeGreaterThan(40);
+  await page.getByLabel("ملاحظات السطر 1").scrollIntoViewIfNeeded();
+  await expect(page.getByRole("button", { name: "حذف السطر 1" })).toBeVisible();
+  await page.screenshot({
+    path: "test-results/shorthand-table-end.png",
+    fullPage: true,
+  });
+  await page.getByLabel("سعر الوحدة السطر 1", { exact: true }).fill("٧٥،~~~");
+  await expect(page.getByLabel("تفسير سعر الوحدة (0-9) السطر 1")).toHaveValue(
+    "",
+  );
+  await page.getByRole("button", { name: "حفظ مسودة" }).click();
+  await expect(page.getByRole("status")).toContainText("حُفظت المسودة");
+});

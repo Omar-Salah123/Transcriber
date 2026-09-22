@@ -18,8 +18,8 @@ class InvoiceWorkbook
         $book = new Spreadsheet;
         $headers = $book->getActiveSheet()->setTitle('الفواتير');
         $items = $book->createSheet()->setTitle('الأصناف');
-        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تحذيرات أقرها المراجع']);
-        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ المكتوب', 'المبلغ المحسوب', 'ملاحظات', 'حقول غير مؤكدة']);
+        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تحذيرات أقرها المراجع', 'تفسير الإجمالي المكتوب']);
+        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ المكتوب', 'المبلغ المحسوب', 'ملاحظات', 'حقول غير مؤكدة', 'تفسير سعر الوحدة', 'تفسير المبلغ المكتوب']);
         $invoiceRow = 2;
         $itemRow = 2;
         foreach ($invoices as $invoice) {
@@ -29,12 +29,13 @@ class InvoiceWorkbook
             $this->row($headers, $invoiceRow++, [$invoice->id, $invoice->invoice_number, $invoice->date_text, $invoice->seller, $invoice->customer,
                 $this->numberOrText($invoice->written_total_text), $this->numeric($invoice->calculated_total),
                 $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', $invoice->source_filename, $invoice->review_notes,
-                implode('؛ ', array_column($this->review->warnings($invoice), 'message'))]);
+                implode('؛ ', array_column($this->review->warnings($invoice), 'message')), $this->numberOrText($invoice->written_total_interpreted_text)]);
             foreach ($invoice->items as $item) {
                 $this->row($items, $itemRow++, [$invoice->id, $item->row_order, $item->description,
                     $this->numberOrText($item->quantity_text), $this->numberOrText($item->unit_price_text),
                     $this->numberOrText($item->written_amount_text), $this->numeric($item->calculated_amount),
-                    $item->review_note, implode('؛ ', $item->unresolved_fields ?? [])]);
+                    $item->review_note, implode('؛ ', $item->unresolved_fields ?? []),
+                    $this->numberOrText($item->unit_price_interpreted_text), $this->numberOrText($item->written_amount_interpreted_text)]);
             }
         }
         foreach ($book->getAllSheets() as $sheet) {

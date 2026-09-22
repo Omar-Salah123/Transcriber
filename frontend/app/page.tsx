@@ -15,12 +15,15 @@ const headerFields = [
   ["seller", "البائع"],
   ["customer", "العميل"],
   ["written_total_text", "الإجمالي المكتوب"],
+  ["written_total_interpreted_text", "تفسير الإجمالي (أرقام 0-9 بلا فواصل)"],
 ] as const;
 const itemFields = [
   ["description", "الوصف"],
   ["quantity_text", "الكمية"],
   ["unit_price_text", "سعر الوحدة"],
+  ["unit_price_interpreted_text", "تفسير سعر الوحدة (0-9)"],
   ["written_amount_text", "المبلغ المكتوب"],
+  ["written_amount_interpreted_text", "تفسير المبلغ (0-9)"],
 ] as const;
 
 export default function Home() {
@@ -441,6 +444,11 @@ export default function Home() {
             <fieldset disabled={locked} className="review-fields">
               <div className="review-scroll">
                 <section className="form-section">
+                  <p className="notice">
+                    حقول التفسير تقترح قيمة رقمية لاختصار الآلاف في خط البائع.
+                    قارنها بالصورة الأصلية قبل التأكيد؛ النص المكتوب محفوظ
+                    منفصلاً.
+                  </p>
                   <div className="form-grid">
                     {headerFields.map(([field, label]) => (
                       <label key={field}>
@@ -451,6 +459,9 @@ export default function Home() {
                             edit((current) => ({
                               ...current,
                               [field]: event.target.value,
+                              ...(field === "written_total_text"
+                                ? { written_total_interpreted_text: null }
+                                : {}),
                               unresolved_fields:
                                 current.unresolved_fields.filter(
                                   (name) => name !== field,
@@ -495,6 +506,19 @@ export default function Home() {
                                           ? {
                                               ...row,
                                               [field]: event.target.value,
+                                              ...(field === "unit_price_text"
+                                                ? {
+                                                    unit_price_interpreted_text:
+                                                      null,
+                                                  }
+                                                : {}),
+                                              ...(field ===
+                                              "written_amount_text"
+                                                ? {
+                                                    written_amount_interpreted_text:
+                                                      null,
+                                                  }
+                                                : {}),
                                               unresolved_fields:
                                                 row.unresolved_fields.filter(
                                                   (name) => name !== field,
@@ -562,7 +586,9 @@ export default function Home() {
                             description: null,
                             quantity_text: null,
                             unit_price_text: null,
+                            unit_price_interpreted_text: null,
                             written_amount_text: null,
+                            written_amount_interpreted_text: null,
                             review_note: null,
                             unresolved_fields: [],
                           } satisfies InvoiceItem,

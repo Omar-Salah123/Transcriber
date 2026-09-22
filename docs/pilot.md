@@ -14,7 +14,9 @@ One supplied example image is insufficient for a representative ten-invoice eval
    cost from unverified pricing or use synthetic timings as measured results.
 5. Compare source-number fields after documented numeral normalization, identifiers
    exactly (including leading zeros), descriptions against the human transcription,
-   and row sequences for missing/extra/misaligned rows. Report numerators and
+   shorthand interpretations separately from visible source marks, and row
+   sequences for missing/extra/misaligned rows. Record false shorthand expansions
+   as well as missed expansions. Report numerators and
    denominators, including missing/incorrect fields, rather than one overall score.
 6. Summarize total API cost and review time versus manual entry, with examples of
    failure classes. The owner decides whether the observed results justify processing

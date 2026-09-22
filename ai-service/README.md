@@ -2,7 +2,8 @@
 
 This private service accepts JPEG and PNG bytes only from the Laravel backend.
 It validates the image, sends it through a small LangGraph workflow, asks Gemini
-for a Pydantic-shaped literal-text result, validates it again, and returns both
+for a Pydantic-shaped result with separate literal-text and optional
+thousands-shorthand interpretation fields, validates it again, and returns both
 the unreviewed candidate and the original model output, including structured tool calls.
 
 ## Start locally

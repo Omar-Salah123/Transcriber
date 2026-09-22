@@ -63,6 +63,9 @@ class InvoiceController extends Controller
             $invoice = Invoice::lockForUpdate()->findOrFail($invoice->id);
             abort_if($invoice->version !== $data['version'], 409, 'تغيرت الفاتورة. أعد تحميلها قبل الحفظ.');
             abort_if($invoice->status === 'processing', 409, 'انتظر انتهاء الاستخراج');
+            if ($invoice->written_total_text !== $data['written_total_text'] && ! array_key_exists('written_total_interpreted_text', $data)) {
+                $data['written_total_interpreted_text'] = null;
+            }
             $invoice->fill(Arr::except($data, ['items', 'version']));
             $invoice->status = 'review';
             $invoice->review_acknowledged = false;

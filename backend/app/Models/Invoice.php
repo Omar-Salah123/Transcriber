@@ -24,6 +24,7 @@ class Invoice extends Model
         'seller',
         'customer',
         'written_total_text',
+        'written_total_interpreted_text',
         'calculated_total',
         'raw_model_output',
         'review_notes',
