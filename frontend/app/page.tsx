@@ -39,7 +39,8 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
-    if (!activeRef.current) activeRef.current = localStorage.getItem("activeInvoiceId");
+    if (!activeRef.current)
+      activeRef.current = localStorage.getItem("activeInvoiceId");
     const before = generation.current;
     const invoices = await api<InvoiceRecord[]>("invoices");
     if (before !== generation.current || busyRef.current) return;
