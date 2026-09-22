@@ -1,80 +1,92 @@
-export type InvoiceStatus = "ready" | "review" | "confirmed";
-
+export type InvoiceStatus =
+  "pending" | "processing" | "review" | "failed" | "confirmed";
 export type InvoiceItem = {
-  id: string;
-  description: string;
-  quantity: string;
-  unitPrice: string;
-  writtenAmount: string;
-  note: string;
+  id?: number;
+  row_order?: number;
+  description: string | null;
+  quantity_text: string | null;
+  unit_price_text: string | null;
+  written_amount_text: string | null;
+  calculated_amount?: string | null;
+  unresolved_fields: string[];
+  review_note: string | null;
 };
-
 export type InvoiceRecord = {
   id: string;
-  filename: string;
+  version: number;
+  source_filename: string;
   status: InvoiceStatus;
-  invoiceNumber: string;
-  issueDate: string;
-  seller: string;
-  customer: string;
-  writtenTotal: string;
-  reviewNote: string;
-  acknowledged: boolean;
-  previewUrl?: string;
+  invoice_number: string | null;
+  date_text: string | null;
+  seller: string | null;
+  customer: string | null;
+  written_total_text: string | null;
+  calculated_total: string | null;
+  review_notes: string | null;
+  review_acknowledged: boolean;
+  unresolved_fields: string[];
+  extraction_error: string | null;
+  image_url: string;
   items: InvoiceItem[];
+  warnings: { field: string; message: string }[];
 };
 
-const ArabicDigits = "٠١٢٣٤٥٦٧٨٩";
-const PersianDigits = "۰۱۲۳۴۵۶۷۸۹";
+export const statusLabel: Record<InvoiceStatus, string> = {
+  pending: "بانتظار الاستخراج",
+  processing: "جارٍ الاستخراج",
+  review: "للمراجعة",
+  failed: "تعذر الاستخراج",
+  confirmed: "مؤكدة",
+};
 
-/** Turns Arabic and Persian numerals into ASCII only for calculations. */
-export function normalizeNumerals(value: string): string {
-  return value
-    .replace(/[٠-٩]/g, (digit) => String(ArabicDigits.indexOf(digit)))
-    .replace(/[۰-۹]/g, (digit) => String(PersianDigits.indexOf(digit)))
-    .replace(/٬/g, "")
-    .replace(/٫/g, ".")
-    .trim();
+export function draftPayload(invoice: InvoiceRecord) {
+  return {
+    version: invoice.version,
+    invoice_number: invoice.invoice_number,
+    date_text: invoice.date_text,
+    seller: invoice.seller,
+    customer: invoice.customer,
+    written_total_text: invoice.written_total_text,
+    review_notes: invoice.review_notes,
+    unresolved_fields: invoice.unresolved_fields,
+    items: invoice.items.map(
+      ({
+        description,
+        quantity_text,
+        unit_price_text,
+        written_amount_text,
+        unresolved_fields,
+        review_note,
+      }) => ({
+        description,
+        quantity_text,
+        unit_price_text,
+        written_amount_text,
+        unresolved_fields,
+        review_note,
+      }),
+    ),
+  };
 }
 
-export function parseAmount(value: string): number | null {
-  const normalized = normalizeNumerals(value).replace(/[^0-9.-]/g, "");
-  if (!normalized || !/^-?\d+(\.\d+)?$/.test(normalized)) {
-    return null;
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`/api/${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "X-Invoice-Client": "local-review",
+      ...(init.body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
+      ...init.headers,
+    },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      body.message || `تعذر الاتصال بالخدمة (${response.status})`,
+    );
   }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export function lineTotal(item: InvoiceItem): number | null {
-  const quantity = parseAmount(item.quantity);
-  const unitPrice = parseAmount(item.unitPrice);
-  if (quantity === null || unitPrice === null) {
-    return null;
-  }
-  return quantity * unitPrice;
-}
-
-export function calculatedTotal(invoice: InvoiceRecord): number | null {
-  const totals = invoice.items.map(lineTotal);
-  const definedTotals = totals.filter((total): total is number => total !== null);
-  if (definedTotals.length !== totals.length) {
-    return null;
-  }
-  return definedTotals.reduce((sum, total) => sum + total, 0);
-}
-
-export function hasReviewWarnings(invoice: InvoiceRecord): boolean {
-  return (
-    !invoice.invoiceNumber.trim() ||
-    !invoice.customer.trim() ||
-    !invoice.writtenTotal.trim() ||
-    invoice.items.some(
-      (item) =>
-        !item.description.trim() ||
-        !item.quantity.trim() ||
-        !item.unitPrice.trim(),
-    )
-  );
+  return response.json() as Promise<T>;
 }

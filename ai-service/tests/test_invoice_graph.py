@@ -3,7 +3,6 @@ from __future__ import annotations
 from io import BytesIO
 
 from PIL import Image
-
 from transcriber_id.agents.invoice_graph import build_invoice_graph
 from transcriber_id.schemas import ExtractedInvoice, ExtractedInvoiceItem
 

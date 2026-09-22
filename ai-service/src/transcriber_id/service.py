@@ -15,9 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
-
 from transcriber_id.agents import extract_invoice_image
+from transcriber_id.check_model import load_configuration
 from transcriber_id.schemas import ExtractionResponse
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -30,6 +29,10 @@ class InvoiceAgentHandler(BaseHTTPRequestHandler):
     server_version = "InvoiceAgent/1.0"
 
     def do_POST(self) -> None:  # noqa: N802 - HTTP handler naming is prescribed.
+        self.connection.settimeout(10)
+        if self.headers.get("X-Invoice-Service") != "laravel" or self.headers.get("Origin"):
+            self._send_json(HTTPStatus.FORBIDDEN, {"detail": "Private service"})
+            return
         if urlparse(self.path).path != "/v1/extractions":
             self._send_json(HTTPStatus.NOT_FOUND, {"detail": "Not found"})
             return
@@ -57,7 +60,11 @@ class InvoiceAgentHandler(BaseHTTPRequestHandler):
         if state["errors"]:
             self._send_json(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"detail": "Extraction could not be completed", "errors": state["errors"]},
+                {
+                    "detail": "Extraction could not be completed",
+                    "errors": state["errors"],
+                    "raw_model_output": state["raw_model_output"],
+                },
             )
             return
 
@@ -101,10 +108,10 @@ class InvoiceAgentHandler(BaseHTTPRequestHandler):
 def main() -> None:
     """Start the private agent service after loading the local environment."""
 
-    load_dotenv()
+    load_configuration()
     host = os.getenv("AI_SERVICE_HOST", "127.0.0.1")
     port = int(os.getenv("AI_SERVICE_PORT", "8100"))
-    if host not in {"127.0.0.1", "localhost", "::1"}:
+    if host not in {"127.0.0.1", "localhost"}:
         raise RuntimeError("AI_SERVICE_HOST must remain a loopback address")
     server = ThreadingHTTPServer((host, port), InvoiceAgentHandler)
     print(f"Invoice agent listening on http://{host}:{port}")

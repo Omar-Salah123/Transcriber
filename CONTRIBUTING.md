@@ -1,80 +1,63 @@
 # Contributing
 
-Read [AGENTS.md](AGENTS.md) and the [implementation plan](docs/implementation-plan.md)
-before starting. The first version is a single-operator local app.
+Read `AGENTS.md`, `README.md`, and `docs/implementation-plan.md` first.
+The application is local and single-operator. Agree on module ownership before
+editing shared contracts. Keep Python extraction, Laravel application rules,
+React UI, and workbook generation separate.
 
-## Set up and run
+## Dependencies and checks
 
-Install Git and [uv](https://docs.astral.sh/uv/getting-started/installation/), clone
-the repository, and change into its directory. Then:
+Use Python 3.12 and `uv`. The root is a non-package workspace; `ai-service` owns
+the installable `transcriber_id` module. Add runtime dependencies with
+`uv add --package ai-service PACKAGE`; regenerate `uv.lock`, never hand-edit it.
+Use Composer for backend dependencies and npm for frontend dependencies; include
+their generated lockfiles.
+
+From the repository root:
 
 ```powershell
-uv python install 3.12
 uv sync --locked
-uv run streamlit run src/transcriber/app.py --server.address 127.0.0.1
-```
-
-Use `.venv` as your editor's Python interpreter. The placeholder needs no secrets.
-Future extraction configuration is documented in `.env.example`.
-
-## Work together
-
-Agree on an issue and module ownership before starting. Define shared schema
-changes together before working on dependent extraction, UI, or export code.
-Prefer small pull requests for one implementation-plan milestone or behavior.
-
-```powershell
-git switch main
-git pull --ff-only
-git switch -c feat/short-description
-```
-
-Use `uv add <package>` for runtime dependencies and `uv add --dev <package>` for
-development tools. Include both `pyproject.toml` and `uv.lock` in the change.
-Do not update unrelated dependencies or commit local environment files.
-
-Before opening a pull request:
-
-```powershell
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
+cd backend
+composer install
+php vendor/bin/pint --test
+php artisan test
+cd ../frontend
+npm ci
+npm run lint
+npm run typecheck
+npm run format:check
+npm run build
+npx playwright install chromium
+npm test
+cd ..
 git diff --check
 git status --short
 git diff
 ```
 
-Use `uv run ruff format .` to format intentional changes. Add behavior-focused tests
-as functionality arrives; ordinary tests must not call paid APIs or require client
-data. Inspect UI changes in the browser and exported workbooks visually. Ask your
-teammate to review the pull request before merging.
+PHP feature tests use in-memory SQLite, fake storage, and fake HTTP calls. Tests
+generate their own ephemeral encryption key and never read a developer's secrets.
+Browser tests mock the API by default. Set `PLAYWRIGHT_CHANNEL=chrome` to use an
+installed Chrome instead of Playwright's Chromium.
 
-## Publish the initial repository
+For the optional full integration test, use an isolated SQLite database and image
+directory, the fixture `uv run python ai-service/tests/fake_service.py` on port
+8101, Laravel with `AI_SERVICE_URL=http://127.0.0.1:8101`, and one database queue
+worker using the same environment. Set `LIVE_API=1` and run
+`npm test -- tests/integration.spec.ts`. Never run this fixture test against a
+client database or a real AI service. CI performs this isolated run automatically.
 
-These are manual owner steps; the scaffold does not publish or invite anyone.
+Use `uv run ruff format .`, `php vendor/bin/pint` in backend, and
+`npx prettier --write app/page.tsx lib/invoice.ts next.config.ts playwright.config.ts tests`
+in frontend for intentional changes. Normal tests must not make provider calls.
 
-1. Create an empty GitHub repository with the name and visibility you choose. Do
-   not initialize it with another README, `.gitignore`, or license.
-2. From this local folder, review the files and ignore rules before committing:
+Inspect the Arabic interface at desktop and narrow widths. Verify both exported
+worksheets visually and by their cell types. Add behavioral tests for changes to
+confirmation, row order, ambiguity, decimal arithmetic, and extraction failures.
 
-   ```powershell
-   git status --short
-   git add .
-   git diff --cached --stat
-   git diff --cached
-   git commit -m "Initialize Arabic invoice app scaffold"
-   git branch -M main
-   git remote add origin https://github.com/YOUR-ACCOUNT/YOUR-REPOSITORY.git
-   git push -u origin main
-   ```
-
-   Replace the example URL with your repository URL. Authenticate to GitHub when
-   prompted. If `origin` already exists, inspect `git remote -v` before changing it.
-3. In a personal GitHub repository, open **Settings → Collaborators → Add people**,
-   select your teammate, and send the invitation. They must accept before accessing
-   a private repository. See [GitHub's collaborator guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/inviting-collaborators-to-a-personal-repository).
-4. Confirm the CI workflow passes. Where your GitHub plan supports it, configure a
-   rule for `main` requiring a pull request, one approval, and the `checks` status.
-
-No license has been selected. The repository owner should decide licensing before
-distributing the project under a license.
+Use focused branches prefixed `codex/` for agent work. Review the diff for private
+data even if ignore rules are present. Summarize changes, checks, and remaining
+limitations in the pull request. No license has been selected for this project.

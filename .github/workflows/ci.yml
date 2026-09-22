@@ -18,7 +18,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
-          version: "0.9.11"
+          version: "0.12.17"
       - name: Install Python
         run: uv python install
       - name: Install locked dependencies
@@ -29,3 +29,85 @@ jobs:
         run: uv run --locked ruff format --check .
       - name: Test
         run: uv run --locked pytest
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sqlite3, pdo_sqlite, gd, mbstring, zip
+      - run: composer install --no-interaction --prefer-dist
+        working-directory: backend
+      - run: php vendor/bin/pint --test
+        working-directory: backend
+      - run: php artisan test
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint && npm run typecheck && npm run format:check && npm run build
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: sqlite
+      QUEUE_CONNECTION: database
+      CACHE_STORE: array
+      AI_SERVICE_URL: http://127.0.0.1:8101
+      LIVE_API: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.12.17'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: sqlite3, pdo_sqlite, gd, mbstring, zip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: uv sync --locked
+      - run: composer install --no-interaction --prefer-dist
+        working-directory: backend
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Start isolated services and test the full workflow
+        shell: bash
+        run: |
+          export DB_DATABASE="$RUNNER_TEMP/invoice-ci.sqlite"
+          export INVOICE_STORAGE_PATH="$RUNNER_TEMP/invoice-images"
+          touch "$DB_DATABASE"
+          cp backend/.env.example backend/.env
+          php backend/artisan key:generate
+          php backend/artisan migrate --force
+          uv run python ai-service/tests/fake_service.py > "$RUNNER_TEMP/ai.log" 2>&1 &
+          ai_pid=$!
+          (cd backend && php artisan serve --host=127.0.0.1 --port=8000 --no-reload) > "$RUNNER_TEMP/api.log" 2>&1 &
+          api_pid=$!
+          php backend/artisan queue:work --tries=1 --timeout=150 --sleep=1 > "$RUNNER_TEMP/queue.log" 2>&1 &
+          queue_pid=$!
+          trap 'kill "$ai_pid" "$api_pid" "$queue_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8000/up >/dev/null && curl --silent http://127.0.0.1:8101 >/dev/null; then break; fi
+            sleep 1
+          done
+          cd frontend
+          npm test -- tests/integration.spec.ts

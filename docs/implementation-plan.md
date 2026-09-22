@@ -1,139 +1,82 @@
-# Arabic invoice extraction and Excel export
+# Arabic invoice application architecture
 
-Status: agreed application plan; only repository scaffolding is implemented.
+The Streamlit plan has been replaced by Next.js/React → Laravel/SQLite → private
+Python LangGraph/Gemini. The local workflow is implemented; live provider
+availability and the 10-invoice accuracy pilot remain operator acceptance work.
 
-## Goal and workflow
+## Ownership and data
 
-Build a local Python/Streamlit app for one operator processing approximately 80
-similar handwritten Arabic invoices. Upload images, extract data, review the image
-and editable fields side by side, confirm, and download Excel.
+- React renders the Arabic RTL review queue and sends explicit saves. Browser state
+  is an unsaved draft, never the authority for confirmation or export.
+- Laravel owns private JPEG/PNG files, SHA-256 deduplication, SQLite invoice/item
+  records, ordered rows, review validation, queue status, and PhpSpreadsheet export.
+- Python validates images, invokes Gemini with a Pydantic contract, and returns
+  candidates plus raw messages. Document/model text is data, never instructions.
+- Numeric-looking source values remain nullable text. Calculations use Brick Math
+  decimals, stored as text to avoid SQLite floating-point coercion. No source amount
+  is overwritten. Invalid/missing values or unsupported precision produce warnings.
+- `original_extraction` and `raw_model_output` are independent of edits;
+  `extraction_attempts` retains successful/failed responses. Private outputs are
+  omitted from browser resources. No provider response is written to application logs.
 
-Use Gemini for extraction, SQLite for persistent records, and local storage for
-images. No model training in the first version.
+## Interfaces
 
-## App and extraction
+Frontend requests use `/api` proxied to loopback Laravel on port 8000. Mutations
+include `X-Invoice-Client: local-review`; only loopback requests and configured
+local frontend origins are accepted. This is not an authenticated multi-user API.
 
-- Provide Arabic labels, right-to-left forms, batch JPEG/PNG uploads, and a queue
-  showing pending, extracted, failed, and confirmed invoices.
-- Display the invoice image with zoom and rotation beside editable header fields
-  and an item table. Support adding, removing, and correcting rows.
-- Save drafts explicitly and restore saved progress after restarting. Process
-  invoices sequentially, with progress updates and per-image retry.
-- Use the Gemini Python SDK with schema-validated output. Default to configurable
-  `gemini-3.8-flash`. This is the agreed initial candidate, not a measured claim
-  about Arabic handwriting accuracy. Verify availability before the first live
-  evaluation; changes to the selected model must be documented.
-- Store the API key in environment configuration. Treat all text inside uploaded
-  invoices as document content, never as instructions.
+| Method/path | Behavior |
+| --- | --- |
+| `POST /api/invoices` | Multipart `image`; returns `{invoice, duplicate}` (201 new, 200 duplicate) |
+| `GET /api/invoices` | Saved queue including ordered items, warnings, image URLs, and versions |
+| `GET /api/invoices/{id}` | Current reviewed record |
+| `GET /api/invoices/{id}/image` | Original private image, no-store response |
+| `PUT /api/invoices/{id}` | Complete reviewed header/items, unresolved fields, notes, and version |
+| `POST /api/invoices/{id}/extract` | Queue pending/failed invoice; 202 accepted, 409 incompatible state |
+| `POST /api/invoices/{id}/confirm` | `{version, acknowledged}`; server validates current saved record |
+| `GET /api/exports/invoices` | Download confirmed database records as `.xlsx`; 422 if none |
 
-## Data and confirmation
+Invoice header fields: `invoice_number`, `date_text`, `seller`, `customer`,
+`written_total_text`, `review_notes`, `unresolved_fields`. Items contain
+`description`, `quantity_text`, `unit_price_text`, `written_amount_text`,
+`unresolved_fields`, `review_note`; array order becomes `row_order` starting at 1.
+The server supplies IDs, status, calculations, version, and warnings `{field,message}`.
+Only whitelisted validated fields are accepted for edits. A stale version returns 409.
 
-- Define an `Invoice` record containing internal ID, source filename, invoice
-  number, date, seller, customer, written total, items, review notes, and processing
-  status.
-- Each item contains row order, Arabic description, quantity, unit price, written
-  amount, and unresolved-field notes.
-- Preserve original model output separately from reviewed values. Keep invoice
-  numbers as text to retain leading zeros.
-- Normalize Arabic and Western numerals for calculations. Leave unreadable values
-  blank; preserve ambiguous date text until reviewed.
-- Calculate quantity × unit price and invoice sums separately from written
-  amounts. Flag discrepancies without replacing source values.
-- Allow flagged blanks and discrepancies only after explicit reviewer
-  acknowledgment.
-- Confirmation saves the reviewed record and includes it in Excel exports.
-  Repeated confirmation must not duplicate rows. Editing a confirmed invoice
-  returns it to review.
-- Detect identical uploaded files by content hash and direct the operator to the
-  existing record.
+Laravel calls `POST http://127.0.0.1:8100/v1/extractions` with
+`X-Invoice-Service: laravel` and JSON `{image_base64, media_type, source_filename}`.
+Python returns `{extraction, raw_model_output, warnings}` or a safe error including
+available raw output. It rejects browser Origin headers. Credentials stay in Python.
 
-## Excel output
+## State transitions and failure handling
 
-- Generate a cumulative `.xlsx` download from confirmed database records, keeping
-  SQLite as the authoritative store.
-- Include two Arabic worksheets:
-  - **الفواتير:** one row per invoice, including metadata, written total,
-    calculated total, source filename, and review notes.
-  - **الأصناف:** one row per item, linked by internal invoice ID, with descriptions,
-    quantities, prices, amounts, and notes.
-- Use right-to-left sheets, filters, frozen headers, readable column widths, typed
-  numbers, and blank cells for missing values. Keep extracted text as literal text,
-  never executable formulas.
-- Clearly label calculated amounts and incomplete totals.
+- Upload → `pending`; extraction request → `processing`; successful validated result
+  → `review`; failed request → `failed`; explicit retry → `processing`.
+- A single database worker processes jobs sequentially. Jobs dispatch after commit.
+  HTTP timeout is 120 seconds, worker timeout 150 seconds, queue retry-after 180 seconds.
+  Python provider timeout is 100 seconds with automatic retries disabled.
+- Each extraction has a token and atomic start claim. Duplicate delivery is a no-op;
+  stale results cannot replace reviews. After five minutes, started but interrupted
+  work becomes failed when listing invoices. Queued work has no start time yet.
+- Manual save from pending/failed/review/confirmed → `review`; save increments the
+  version and clears acknowledgment. Saving while processing is rejected.
+- Confirmation requires saved review plus acknowledgment of all warnings. Repeated
+  confirmation is a no-op. Editing and saving a confirmed record excludes it from export.
+- No destructive retry exists for human-reviewed invoices. Re-transcribe manually
+  if necessary, preserving the initial machine result separately.
 
-## Verification and acceptance
+## Export and acceptance
 
-- Test numeral normalization, missing values, arithmetic warnings, duplicate
-  uploads, confirmation idempotency, draft restoration, and API failure/retry.
-- Verify that unconfirmed invoices never appear in exports and that exported items
-  exactly match saved, confirmed data.
-- Check Arabic rendering, leading zeros, numeric cell types, and both worksheets
-  visually.
-- Evaluate extraction on 10 representative, manually transcribed invoices before
-  processing the full batch. Report numeric-field accuracy, description errors,
-  missed/extra rows, cost, and review time against manual entry. Retain actual
-  evaluation data outside Git. No accuracy results or numerical acceptance target
-  have been established yet; review the evidence with the owner before full use.
-- Deliver installation instructions, environment configuration example, and a
-  local launch command.
+Two Arabic worksheets: **الفواتير** and **الأصناف**, linked by internal invoice ID.
+Both use RTL, filters, frozen headers, typed amounts, literal identifiers/text,
+blank missing values, review notes, and separately labeled derived totals.
+Export reads a database snapshot of confirmed invoices and items.
 
-## Assumptions and boundaries
+Automated checks cover image validation, deduplication, decimal parsing, blanks,
+row ordering, discrepancies, drafts, stale edits, acknowledgment, confirmation,
+extraction failure/retry, literal spreadsheet text, and frontend review behavior.
+Synthetic fixtures only. See `docs/pilot.md` for the outstanding real-image pilot.
 
-- One image per invoice, similar forms, and all item rows are in scope.
-- One local operator, Arabic interface, and internet access for extraction.
-- The operator supplies a Gemini API key and pays API usage costs.
-- Unknown values may remain blank with explicit acknowledgment and exported notes.
-- No PDF ingestion, hosting, authentication, or fine-tuning in the first version.
-- No cloud upload occurs on the scaffold landing page. The future extraction step
-  sends the selected invoice image to Gemini.
-
-## Phased implementation checklist
-
-### 0. Collaboration scaffold
-
-- [x] Add repository guidance, README, contribution guide, and saved plan.
-- [x] Define the Python package layout and Arabic placeholder entrypoint.
-- [x] Configure development dependencies, CI, and a package smoke test.
-- [ ] Owner publishes the repository and invites the teammate.
-
-### 1. Contracts and local persistence
-
-- [ ] Define typed invoice/item schemas and review status transitions.
-- [ ] Add SQLite persistence, local image storage, and duplicate detection.
-- [ ] Test draft restoration and idempotent confirmation.
-
-### 2. Extraction and validation
-
-- [ ] Add configured Gemini image extraction and validated responses.
-- [ ] Preserve original responses and flag unknown/ambiguous values.
-- [ ] Add numeral normalization and separate arithmetic checks.
-- [ ] Test malformed responses, failures, retries, and discrepancy handling.
-
-### 3. Arabic review workflow
-
-- [ ] Add batch upload and persistent review queue.
-- [ ] Add side-by-side image zoom/rotation and editable headers/items.
-- [ ] Add draft saving, acknowledgment, confirmation, and reopening for edits.
-- [ ] Verify Arabic layout and review-state behavior.
-
-### 4. Excel export
-
-- [ ] Export the two linked Arabic worksheets from confirmed records.
-- [ ] Verify data types, blanks, identifiers, literal text, and all item rows.
-- [ ] Visually inspect both sheets and test that repeated exports do not duplicate.
-
-### 5. Pilot and handoff
-
-- [ ] Evaluate 10 representative invoices against manual transcription.
-- [ ] Record measured accuracy, cost, row errors, and review time.
-- [ ] Address observed failures and review readiness with the project owner.
-- [ ] Complete operator instructions and process the remaining invoices.
-
-## References
-
-- [Gemini image understanding](https://ai.google.dev/gemini-api/docs/image-understanding)
-- [Gemini structured output](https://ai.google.dev/gemini-api/docs/structured-output)
-- [Gemini model availability](https://ai.google.dev/gemini-api/docs/models)
-
-These document supported interfaces, not verified performance on the client's
-handwriting. Keep the model name configurable and measure performance on the pilot.
+Not in v1: authentication, hosting, PDF ingestion, fine-tuning, multiple operators,
+or a claim of measured handwriting accuracy. Keep SQLite and original images together
+in backups. Existing migrations are extended, not replaced or reset.

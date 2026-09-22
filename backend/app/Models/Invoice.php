@@ -28,6 +28,12 @@ class Invoice extends Model
         'raw_model_output',
         'review_notes',
         'review_acknowledged',
+        'unresolved_fields',
+        'original_extraction',
+        'extraction_error',
+        'extraction_token',
+        'extraction_started_at',
+        'version',
     ];
 
     protected function casts(): array
@@ -35,6 +41,10 @@ class Invoice extends Model
         return [
             'review_acknowledged' => 'boolean',
             'calculated_total' => 'decimal:4',
+            'unresolved_fields' => 'array',
+            'original_extraction' => 'array',
+            'extraction_started_at' => 'datetime',
+            'version' => 'integer',
         ];
     }
 

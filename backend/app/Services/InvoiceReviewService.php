@@ -3,101 +3,110 @@
 namespace App\Services;
 
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use Brick\Math\BigDecimal;
-use Brick\Math\Exception\MathException;
 
 class InvoiceReviewService
 {
-    /** Recompute derived values without changing invoice text supplied by a person or model. */
+    public function decimal(?string $value): ?BigDecimal
+    {
+        $normalized = strtr(trim($value ?? ''), array_combine(
+            preg_split('//u', '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', -1, PREG_SPLIT_NO_EMPTY),
+            str_split('01234567890123456789')
+        ));
+        $normalized = strtr($normalized, ['٫' => '.', '٬' => ',']);
+        if (! preg_match('/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,4})?$/D', $normalized)) {
+            return null;
+        }
+        $number = BigDecimal::of(str_replace(',', '', $normalized));
+
+        return $number->abs()->isLessThan('1000000000000000') ? $number : null;
+    }
+
     public function refreshCalculatedAmounts(Invoice $invoice): void
     {
-        $allLinesComplete = true;
         $total = BigDecimal::of(0);
-
+        $complete = $invoice->items->isNotEmpty();
         foreach ($invoice->items as $item) {
-            $line = $this->lineTotal($item);
-            $item->calculated_amount = $line?->__toString();
-            $item->save();
-
-            if ($line === null) {
-                $allLinesComplete = false;
-                continue;
+            $quantity = $this->decimal($item->quantity_text);
+            $price = $this->decimal($item->unit_price_text);
+            $line = $quantity?->multipliedBy($price ?? 0)->stripTrailingZeros();
+            if ($quantity === null || $price === null || $line->getScale() > 4 || $line->abs()->isGreaterThanOrEqualTo('1000000000000000')) {
+                $line = null;
+                $complete = false;
             }
-            $total = $total->plus($line);
+            $item->calculated_amount = $line === null ? null : (string) $line;
+            $item->save();
+            $total = $total->plus($line ?? 0);
         }
-
-        $invoice->calculated_total = $allLinesComplete ? $total->__toString() : null;
+        $invoice->calculated_total = $complete && $total->abs()->isLessThan('1000000000000000') ? (string) $total : null;
         $invoice->save();
     }
 
-    /** @return list<string> */
+    /** @return list<array{field: string, message: string}> */
     public function warnings(Invoice $invoice): array
     {
         $warnings = [];
-        foreach (['invoice_number', 'customer', 'written_total_text'] as $field) {
+        $add = function (string $field, string $message) use (&$warnings): void {
+            $warnings[] = ['field' => $field, 'message' => $message];
+        };
+        foreach (['invoice_number', 'date_text', 'seller', 'customer', 'written_total_text'] as $field) {
             if (blank($invoice->{$field})) {
-                $warnings[] = "Missing {$field}.";
+                $add($field, 'قيمة مفقودة: '.$field);
             }
         }
-
-        foreach ($invoice->items as $item) {
-            foreach (['description', 'quantity_text', 'unit_price_text'] as $field) {
+        foreach ($invoice->unresolved_fields ?? [] as $field) {
+            $add($field, 'قيمة غير مؤكدة: '.$field);
+        }
+        if ($invoice->items->isEmpty()) {
+            $add('items', 'لا توجد أصناف');
+        }
+        foreach ($invoice->items as $index => $item) {
+            foreach (['description', 'quantity_text', 'unit_price_text', 'written_amount_text'] as $field) {
                 if (blank($item->{$field})) {
-                    $warnings[] = "Missing {$field} in item {$item->row_order}.";
+                    $add("items.$index.$field", 'قيمة مفقودة في السطر '.$item->row_order.': '.$field);
+                } elseif ($field !== 'description' && $this->decimal($item->{$field}) === null) {
+                    $add("items.$index.$field", 'رقم غير صالح أو خارج النطاق في السطر '.$item->row_order);
                 }
             }
             foreach ($item->unresolved_fields ?? [] as $field) {
-                $warnings[] = "Unresolved {$field} in item {$item->row_order}.";
+                $add("items.$index.$field", 'قيمة غير مؤكدة في السطر '.$item->row_order.': '.$field);
+            }
+            $written = $this->decimal($item->written_amount_text);
+            if ($written !== null && $item->calculated_amount !== null && ! $written->isEqualTo($item->calculated_amount)) {
+                $add("items.$index.written_amount_text", 'المبلغ المكتوب يختلف عن المحسوب في السطر '.$item->row_order);
+            }
+            if ($item->calculated_amount === null) {
+                $add("items.$index.calculated_amount", 'تعذر حساب السطر '.$item->row_order.' بدقة مدعومة');
+            }
+            if (filled($item->review_note)) {
+                $add("items.$index.review_note", $item->review_note);
             }
         }
-        foreach ($invoice->items as $item) {
-            foreach ($item->unresolved_fields ?? [] as $field) {
-                $warnings[] = "Unresolved {$field} in item {$item->row_order}.";
-            }
-        }
-        foreach ($invoice->getAttribute('unresolved_fields') ?? [] as $field) {
-            $warnings[] = "Unresolved {$field}.";
-        }
-
         $written = $this->decimal($invoice->written_total_text);
-        $calculated = $this->decimal($invoice->calculated_total);
-        if ($written !== null && $calculated !== null && !$written->isEqualTo($calculated)) {
-            $warnings[] = 'Written total differs from calculated total.';
+        if (filled($invoice->written_total_text) && $written === null) {
+            $add('written_total_text', 'الإجمالي المكتوب غير صالح للحساب');
+        }
+        if ($written !== null && $invoice->calculated_total !== null && ! $written->isEqualTo($invoice->calculated_total)) {
+            $add('written_total_text', 'الإجمالي المكتوب يختلف عن مجموع الأصناف');
+        }
+        if ($invoice->calculated_total === null) {
+            $add('calculated_total', 'الإجمالي المحسوب غير مكتمل');
+        }
+        if (filled($invoice->review_notes)) {
+            $add('review_notes', $invoice->review_notes);
         }
 
-        return array_values(array_unique($warnings));
+        return $warnings;
     }
 
-    private function lineTotal(InvoiceItem $item): ?BigDecimal
+    public function present(Invoice $invoice): array
     {
-        $quantity = $this->decimal($item->quantity_text);
-        $unitPrice = $this->decimal($item->unit_price_text);
+        $invoice->loadMissing('items');
+        $result = $invoice->toArray();
+        unset($result['image_path'], $result['raw_model_output'], $result['original_extraction'], $result['extraction_token']);
+        $result['warnings'] = $this->warnings($invoice);
+        $result['image_url'] = '/api/invoices/'.$invoice->id.'/image';
 
-        return $quantity !== null && $unitPrice !== null ? $quantity->multipliedBy($unitPrice) : null;
-    }
-
-    private function decimal(?string $value): ?BigDecimal
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $normalized = strtr(trim($value), [
-            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
-            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
-            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
-            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
-            '٬' => '', '٫' => '.', ',' => '',
-        ]);
-        if (!preg_match('/^-?\d+(?:\.\d+)?$/', $normalized)) {
-            return null;
-        }
-
-        try {
-            return BigDecimal::of($normalized);
-        } catch (MathException) {
-            return null;
-        }
+        return $result;
     }
 }
