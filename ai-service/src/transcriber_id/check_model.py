@@ -1,9 +1,13 @@
 """Verify the configured Gemini model without uploading an invoice."""
 
+from __future__ import annotations
+
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from google import genai
+
+from transcriber_id.extraction.gemini import create_gemini_client
 
 
 def load_configuration() -> None:
@@ -12,24 +16,29 @@ def load_configuration() -> None:
 
 
 def main() -> None:
-    import os
-
     load_configuration()
-    key = os.getenv("GEMINI_API_KEY")
     model = os.getenv("GEMINI_MODEL", "")
-    if not key or not model:
-        raise SystemExit("Configure GEMINI_API_KEY and GEMINI_MODEL first.")
+    if not model:
+        raise SystemExit("Configure GEMINI_MODEL first.")
+
     try:
-        with genai.Client(api_key=key) as client:
+        with create_gemini_client() as client:
             available = [
                 entry.name
                 for entry in client.models.list()
-                if "generateContent" in (entry.supported_actions or [])
+                if "generateContent" in (getattr(entry, "supported_actions", None) or [])
+                or getattr(entry, "supported_actions", None) is None
             ]
     except Exception as error:
         # SDK exception messages may contain request details; expose only the class.
         raise SystemExit(f"Model verification failed: {type(error).__name__}") from None
-    if f"models/{model}" not in available and model not in available:
+
+    matches = (
+        model in available
+        or f"models/{model}" in available
+        or any(m.endswith(f"/{model}") for m in available)
+    )
+    if not matches:
         print("Configured model is unavailable:", model)
         print("Available generation models:", ", ".join(available))
         raise SystemExit(1)

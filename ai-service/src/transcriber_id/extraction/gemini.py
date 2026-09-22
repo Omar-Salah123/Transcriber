@@ -7,13 +7,12 @@ accidental calls while the application starts.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 from typing import Any
 
-from langchain_core.messages import HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from google import genai
+from google.genai import types
 
 from transcriber_id.schemas import ExtractedInvoice
 
@@ -38,10 +37,49 @@ all visible item rows in their original order.
 
 def _raw_content(value: Any) -> str:
     """Serialize raw model output without treating it as executable data."""
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "model_dump_json"):
+        return value.model_dump_json()
+    if hasattr(value, "model_dump"):
+        return json.dumps(value.model_dump(mode="json"), ensure_ascii=False, default=str)
+    return json.dumps(value, ensure_ascii=False, default=str)
 
-    # Structured responses may live in tool_calls while content is empty.
-    content = value.model_dump(mode="json") if hasattr(value, "model_dump") else value
-    return json.dumps(content, ensure_ascii=False, default=str)
+
+def create_gemini_client(
+    api_key: str | None = None,
+    *,
+    use_vertex: bool | None = None,
+    project: str | None = None,
+    location: str | None = None,
+) -> genai.Client:
+    """Instantiate a Google GenAI client for either Vertex AI or Google AI Studio."""
+    is_vertex = (
+        use_vertex
+        if use_vertex is not None
+        else (
+            os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in {"1", "true", "yes"}
+            or os.getenv("VERTEXAI", "").lower() in {"1", "true", "yes"}
+            or bool(project or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT"))
+        )
+    )
+    if is_vertex:
+        resolved_project = (
+            project or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("VERTEX_PROJECT")
+        )
+        resolved_location = (
+            location
+            or os.getenv("GOOGLE_CLOUD_LOCATION")
+            or os.getenv("VERTEX_LOCATION", "us-central1")
+        )
+        return genai.Client(vertexai=True, project=resolved_project, location=resolved_location)
+
+    resolved_key = api_key or os.getenv("GEMINI_API_KEY")
+    if not resolved_key:
+        raise RuntimeError(
+            "Configure GOOGLE_CLOUD_PROJECT for Vertex AI or GEMINI_API_KEY for AI Studio"
+        )
+    return genai.Client(api_key=resolved_key)
 
 
 def extract_from_gemini(
@@ -50,39 +88,43 @@ def extract_from_gemini(
     *,
     api_key: str | None = None,
     model_name: str | None = None,
+    client: genai.Client | None = None,
 ) -> tuple[ExtractedInvoice, str]:
     """Ask Gemini for a Pydantic-shaped invoice record and preserve raw output."""
-
-    resolved_key = api_key or os.getenv("GEMINI_API_KEY")
-    if not resolved_key:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
-
     resolved_model = model_name or os.getenv("GEMINI_MODEL")
     if not resolved_model:
         raise RuntimeError("Set GEMINI_MODEL to a verified available model")
-    image_data = base64.b64encode(image_bytes).decode("ascii")
-    message = HumanMessage(
-        content=[
-            {"type": "text", "text": EXTRACTION_INSTRUCTIONS},
-            {"type": "image_url", "image_url": f"data:{media_type};base64,{image_data}"},
-        ]
-    )
-    model = ChatGoogleGenerativeAI(
-        model=resolved_model,
-        google_api_key=resolved_key,
-        temperature=0,
-        timeout=100,
-        max_retries=0,
-    )
-    result = model.with_structured_output(ExtractedInvoice, include_raw=True).invoke(message)
 
-    # include_raw=True returns a mapping in LangChain. Validate defensively so
-    # a provider-side schema regression never becomes reviewed data.
-    raw = _raw_content(result.get("raw", result) if isinstance(result, dict) else result)
+    active_client = client or create_gemini_client(api_key=api_key)
+
+    contents = [
+        EXTRACTION_INSTRUCTIONS,
+        types.Part.from_bytes(data=image_bytes, mime_type=media_type),
+    ]
+    config = types.GenerateContentConfig(
+        temperature=0,
+        response_mime_type="application/json",
+        response_schema=ExtractedInvoice,
+    )
+
+    response = active_client.models.generate_content(
+        model=resolved_model,
+        contents=contents,
+        config=config,
+    )
+
+    raw = response.text or ""
+    if response.parsed is not None and isinstance(response.parsed, ExtractedInvoice):
+        return response.parsed, raw
+
     try:
-        if not isinstance(result, dict) or result.get("parsed") is None:
-            raise ValueError("Missing parsed result")
-        parsed = ExtractedInvoice.model_validate(result["parsed"])
-    except (ValueError, TypeError) as error:
+        if response.parsed is not None:
+            parsed = ExtractedInvoice.model_validate(response.parsed)
+        elif raw:
+            parsed = ExtractedInvoice.model_validate_json(raw)
+        else:
+            raise ValueError("Empty model response")
+    except Exception as error:
         raise ExtractionFailure(raw) from error
+
     return parsed, raw
