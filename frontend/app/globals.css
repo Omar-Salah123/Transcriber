@@ -280,3 +280,184 @@ input:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px r
   .workspace { display: flex; flex-direction: column; min-height: 0; }.queue-panel { max-height: 210px; border-bottom: 1px solid var(--line); border-left: 0; }.queue-list { display: flex; overflow-x: auto; padding: 7px; }.queue-item { min-width: 180px; }.queue-foot { display: none; }
   .review-panel { min-height: 670px; }.review-scroll { padding: 14px; }.review-heading { padding: 10px 14px; }.form-grid { grid-template-columns: 1fr; }.form-grid label.full-width { grid-column: auto; }.footer-actions { flex-direction: column-reverse; }.footer-actions button { width: 100%; }.architecture-note { font-size: 10px; }
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #111 !important;
+    font-size: 11pt;
+  }
+
+  .topbar,
+  .welcome-row,
+  .summary-grid,
+  .drop-zone-wrap,
+  .notice,
+  .empty-review,
+  .queue-panel,
+  .preview-tools,
+  .footer-actions,
+  .acknowledgement,
+  .add-item,
+  .delete-item,
+  .no-print,
+  button {
+    display: none !important;
+  }
+
+  .app-shell {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .workspace {
+    display: flex !important;
+    flex-direction: column !important;
+    border: none !important;
+    box-shadow: none !important;
+    min-height: auto !important;
+  }
+
+  .review-panel {
+    order: 1;
+    border: none !important;
+    min-height: auto !important;
+  }
+
+  .review-heading {
+    border-bottom: 2px solid #222 !important;
+    padding: 0 0 8px 0 !important;
+    margin-bottom: 12px;
+  }
+
+  .review-heading h2 {
+    font-size: 15pt !important;
+    color: #000 !important;
+  }
+
+  .review-scroll {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .form-section {
+    border-bottom: 1px solid #ddd !important;
+    padding-bottom: 10px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .form-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  .form-grid label {
+    font-size: 10pt !important;
+    color: #444 !important;
+  }
+
+  .form-grid input,
+  .form-section textarea {
+    border: none !important;
+    border-bottom: 1px solid #bbb !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    font-size: 11pt !important;
+    font-weight: bold !important;
+    color: #000 !important;
+    padding: 3px 0 !important;
+    height: auto !important;
+  }
+
+  .items-section {
+    page-break-inside: auto;
+  }
+
+  .items-table-wrap {
+    overflow: visible !important;
+    border: 1px solid #333 !important;
+  }
+
+  .items-table {
+    width: 100% !important;
+    min-width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: auto !important;
+  }
+
+  .items-table th,
+  .items-table td {
+    border: 1px solid #777 !important;
+    padding: 5px 7px !important;
+    font-size: 9.5pt !important;
+    color: #000 !important;
+  }
+
+  .items-table th {
+    background: #f0f0f0 !important;
+    font-weight: bold !important;
+  }
+
+  .items-table th:last-child,
+  .items-table td:last-child {
+    display: none !important;
+  }
+
+  .items-table input {
+    border: none !important;
+    background: transparent !important;
+    font-size: 9.5pt !important;
+    color: #000 !important;
+    padding: 0 !important;
+    height: auto !important;
+  }
+
+  .calculation-card {
+    border: 1px solid #333 !important;
+    background: #f8f8f8 !important;
+    margin: 12px 0 !important;
+    padding: 8px 12px !important;
+  }
+
+  .calculation-card strong {
+    color: #000 !important;
+    font-size: 13pt !important;
+  }
+
+  .invoice-preview {
+    order: 2;
+    page-break-before: always;
+    border: none !important;
+    background: transparent !important;
+    margin-top: 20px !important;
+  }
+
+  .preview-heading {
+    border-bottom: 1px solid #444 !important;
+    padding: 6px 0 !important;
+    font-size: 11pt !important;
+  }
+
+  .image-viewport {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: transparent !important;
+    padding: 10px 0 !important;
+  }
+
+  .image-viewport img {
+    max-width: 100% !important;
+    max-height: 230mm !important;
+    object-fit: contain !important;
+    box-shadow: none !important;
+  }
+}
