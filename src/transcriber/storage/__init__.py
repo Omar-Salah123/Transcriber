@@ -1,1 +1,1 @@
-"""Local image and SQLite persistence (planned)."""
+"""Local image and SQLite persistence."""

@@ -1,1 +1,1 @@
-"""Gemini invoice extraction integration (planned)."""
+"""Gemini extraction and persistence of original model responses."""

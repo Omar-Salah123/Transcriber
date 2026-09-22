@@ -1,1 +1,1 @@
-"""Confirmed-invoice Excel export (planned)."""
+"""Confirmed-invoice Excel export."""

@@ -14,8 +14,9 @@ uv sync --locked
 uv run streamlit run src/transcriber/app.py --server.address 127.0.0.1
 ```
 
-Use `.venv` as your editor's Python interpreter. The placeholder needs no secrets.
-Future extraction configuration is documented in `.env.example`.
+Use `.venv` as your editor's Python interpreter. Manual review and export need no
+secrets. Configure `.env.example` as described in the README for live extraction.
+Tests use isolated temporary databases and mocked API responses; no real key is needed.
 
 ## Work together
 

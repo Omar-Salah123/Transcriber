@@ -44,7 +44,7 @@ coverage.xml
 *.webp
 *.pdf
 *.log
-
+Images/
 # Editor and operating system files
 .idea/
 .vscode/

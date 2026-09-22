@@ -1,6 +1,7 @@
 # Arabic invoice extraction and Excel export
 
-Status: agreed application plan; only repository scaffolding is implemented.
+Status: local MVP implemented and verified with synthetic data and mocked API
+responses. Live Gemini validation and the ten-invoice handwriting pilot remain pending.
 
 ## Goal and workflow
 
@@ -84,8 +85,8 @@ images. No model training in the first version.
 - The operator supplies a Gemini API key and pays API usage costs.
 - Unknown values may remain blank with explicit acknowledgment and exported notes.
 - No PDF ingestion, hosting, authentication, or fine-tuning in the first version.
-- No cloud upload occurs on the scaffold landing page. The future extraction step
-  sends the selected invoice image to Gemini.
+- Upload stores the image locally. Only an explicit extraction action sends an
+  oriented, resized copy to Gemini; the full original remains on disk.
 
 ## Phased implementation checklist
 
@@ -98,36 +99,43 @@ images. No model training in the first version.
 
 ### 1. Contracts and local persistence
 
-- [ ] Define typed invoice/item schemas and review status transitions.
-- [ ] Add SQLite persistence, local image storage, and duplicate detection.
-- [ ] Test draft restoration and idempotent confirmation.
+- [x] Define typed invoice/item schemas and review status transitions.
+- [x] Add SQLite persistence, local image storage, and duplicate detection.
+- [x] Test draft restoration and idempotent confirmation.
 
 ### 2. Extraction and validation
 
-- [ ] Add configured Gemini image extraction and validated responses.
-- [ ] Preserve original responses and flag unknown/ambiguous values.
-- [ ] Add numeral normalization and separate arithmetic checks.
-- [ ] Test malformed responses, failures, retries, and discrepancy handling.
+- [x] Add configured Gemini image extraction and validated responses (SDK mocked in tests).
+- [x] Preserve original responses and flag unknown/ambiguous values.
+- [x] Add numeral normalization and separate arithmetic checks.
+- [x] Test malformed responses, failures, retries, and discrepancy handling.
 
 ### 3. Arabic review workflow
 
-- [ ] Add batch upload and persistent review queue.
-- [ ] Add side-by-side image zoom/rotation and editable headers/items.
-- [ ] Add draft saving, acknowledgment, confirmation, and reopening for edits.
-- [ ] Verify Arabic layout and review-state behavior.
+- [x] Add batch upload and persistent review queue.
+- [x] Add side-by-side image zoom/rotation and editable headers/items.
+- [x] Add draft saving, acknowledgment, confirmation, and reopening for edits.
+- [x] Verify Arabic layout and review-state behavior in headless Chrome and AppTest.
 
 ### 4. Excel export
 
-- [ ] Export the two linked Arabic worksheets from confirmed records.
-- [ ] Verify data types, blanks, identifiers, literal text, and all item rows.
-- [ ] Visually inspect both sheets and test that repeated exports do not duplicate.
+- [x] Export the two linked Arabic worksheets from confirmed records.
+- [x] Verify data types, blanks, identifiers, literal text, and all item rows.
+- [x] Inspect HTML previews of both sheets and test that repeated exports do not duplicate.
+- [ ] Check the exported workbook visually in the client's Excel installation.
 
 ### 5. Pilot and handoff
 
 - [ ] Evaluate 10 representative invoices against manual transcription.
 - [ ] Record measured accuracy, cost, row errors, and review time.
 - [ ] Address observed failures and review readiness with the project owner.
-- [ ] Complete operator instructions and process the remaining invoices.
+- [x] Complete operator instructions and offline pilot scoring command.
+- [ ] Process the remaining invoices after the pilot readiness decision.
+
+Implementation details and test boundaries are in the [README](../README.md),
+[operator guide](operator-guide.md), and [pilot guide](pilot.md). The scorer reports
+positional numeric/description errors and net row-count errors; inspect row alignment
+and header/date correctness manually. No real-client accuracy claims have been made.
 
 ## References
 

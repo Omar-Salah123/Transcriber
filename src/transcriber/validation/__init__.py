@@ -1,1 +1,1 @@
-"""Numeral normalization and arithmetic checks (planned)."""
+"""Conservative numeral normalization and arithmetic checks."""

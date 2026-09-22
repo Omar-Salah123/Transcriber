@@ -1,1 +1,1 @@
-"""Arabic invoice review components (planned)."""
+"""Arabic invoice review components."""

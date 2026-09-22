@@ -1,1 +1,1 @@
-"""Validated invoice and item contracts (planned)."""
+"""Validated invoice and item contracts."""

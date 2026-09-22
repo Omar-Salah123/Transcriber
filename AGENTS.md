@@ -5,8 +5,8 @@ These instructions apply throughout this repository to human and AI contributors
 ## Before changing code
 
 - Read `README.md`, `CONTRIBUTING.md`, and `docs/implementation-plan.md`.
-- The current app is a scaffold. Implement the plan in focused, reviewable changes;
-  do not claim that planned features already work.
+- The local MVP is implemented; the real-invoice pilot remains pending. Keep changes
+  focused and reviewable; do not claim unmeasured handwriting accuracy or live API validation.
 - Keep UI, extraction, schemas, persistence, validation, and export separate.
 - Coordinate module ownership with teammates and avoid unrelated edits.
 
