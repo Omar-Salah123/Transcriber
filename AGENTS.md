@@ -5,14 +5,16 @@ These instructions apply throughout this repository to human and AI contributors
 ## Before changing code
 
 - Read `README.md`, `CONTRIBUTING.md`, and `docs/implementation-plan.md`.
-- The current app is a scaffold. Implement the plan in focused, reviewable changes;
-  do not claim that planned features already work.
+- The app uses Next.js/React, Laravel, and a private Python extraction service.
+  Distinguish tested workflow behavior from unmeasured live handwriting accuracy.
 - Keep UI, extraction, schemas, persistence, validation, and export separate.
 - Coordinate module ownership with teammates and avoid unrelated edits.
 
 ## Implementation conventions
 
 - Use Python 3.12, `uv`, typed Python, a `src` layout, Ruff, and pytest.
+- Use TypeScript for React, Laravel validation and transactions for application
+  rules, and Brick Math decimals for monetary calculations. SQLite is authoritative.
 - Define extraction contracts with Pydantic. Validate model responses before use.
 - Preserve Arabic text, row ordering, original model output, and reviewed values.
 - Represent unknown values as missing, never invented values or numeric zero.
@@ -31,6 +33,8 @@ These instructions apply throughout this repository to human and AI contributors
 ## Verification and handoff
 
 - Run `uv run ruff check .`, `uv run ruff format --check .`, and `uv run pytest`.
+- In backend run `php vendor/bin/pint --test` and `php artisan test`; in frontend
+  run lint, typecheck, format:check, build, and browser tests from CONTRIBUTING.md.
 - Add behavioral tests when implementing features; mock API calls in normal tests.
 - For UI changes, run the app and inspect Arabic layout. Verify exports with
   representative values and a visual check of every worksheet.

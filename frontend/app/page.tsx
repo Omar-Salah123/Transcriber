@@ -1,262 +1,674 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useMemo, useRef, useState } from "react";
-
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  calculatedTotal,
-  hasReviewWarnings,
-  lineTotal,
-  type InvoiceItem,
-  type InvoiceRecord,
+  api,
+  draftPayload,
+  InvoiceItem,
+  InvoiceRecord,
+  statusLabel,
 } from "@/lib/invoice";
-import { createConfirmedWorkbook } from "@/lib/workbook";
 
-const demoInvoice: InvoiceRecord = {
-  id: "INV-00023",
-  filename: "فاتورة-0023.jpg",
-  status: "review",
-  invoiceNumber: "0023",
-  issueDate: "2026-09-18",
-  seller: "مؤسسة النور للتوريدات",
-  customer: "شركة البناء الحديث",
-  writtenTotal: "7150",
-  reviewNote: "راجِع اسم العميل مع الصورة قبل التأكيد.",
-  acknowledged: false,
-  items: [
-    {
-      id: "item-1",
-      description: "أسمنت أبيض 50 كجم",
-      quantity: "3",
-      unitPrice: "850",
-      writtenAmount: "2550",
-      note: "",
-    },
-    {
-      id: "item-2",
-      description: "رمل ناعم مغسول",
-      quantity: "2",
-      unitPrice: "2300",
-      writtenAmount: "4600",
-      note: "",
-    },
-  ],
-};
-
-const statusLabel = {
-  ready: "بانتظار الاستخراج",
-  review: "تحتاج مراجعة",
-  confirmed: "تم التأكيد",
-} as const;
-
-function formatMoney(value: number | null): string {
-  if (value === null) return "—";
-  return new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(value);
-}
-
-function newItem(): InvoiceItem {
-  return {
-    id: `item-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    description: "",
-    quantity: "",
-    unitPrice: "",
-    writtenAmount: "",
-    note: "",
-  };
-}
-
-function Icon({ name, size = 20 }: { name: string; size?: number }) {
-  const common = {
-    width: size,
-    height: size,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 1.8,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-    "aria-hidden": true,
-  };
-
-  if (name === "sparkles") return <svg {...common}><path d="m12 3-1.1 4.1L7 8.2l3.9 1.1L12 13l1.1-3.7L17 8.2l-3.9-1.1L12 3Z" /><path d="m19 14-.7 2.3L16 17l2.3.7L19 20l.7-2.3L22 17l-2.3-.7L19 14Z" /><path d="m5 15-.7 2.3L2 18l2.3.7L5 21l.7-2.3L8 18l-2.3-.7L5 15Z" /></svg>;
-  if (name === "upload") return <svg {...common}><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M5 20h14" /></svg>;
-  if (name === "file") return <svg {...common}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6" /><path d="M8 13h8M8 17h5" /></svg>;
-  if (name === "check") return <svg {...common}><path d="m5 12 4 4L19 6" /></svg>;
-  if (name === "download") return <svg {...common}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>;
-  if (name === "plus") return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
-  if (name === "trash") return <svg {...common}><path d="M4 7h16M10 11v6M14 11v6M9 7l1-3h4l1 3M6 7l1 14h10l1-14" /></svg>;
-  if (name === "arrow") return <svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
-  if (name === "chevron") return <svg {...common}><path d="m9 18 6-6-6-6" /></svg>;
-  if (name === "rotate") return <svg {...common}><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /></svg>;
-  return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M12 8v4M12 16h.01" /></svg>;
-}
+const headerFields = [
+  ["invoice_number", "رقم الفاتورة"],
+  ["date_text", "التاريخ كما هو مكتوب"],
+  ["seller", "البائع"],
+  ["customer", "العميل"],
+  ["written_total_text", "الإجمالي المكتوب"],
+] as const;
+const itemFields = [
+  ["description", "الوصف"],
+  ["quantity_text", "الكمية"],
+  ["unit_price_text", "سعر الوحدة"],
+  ["written_amount_text", "المبلغ المكتوب"],
+] as const;
 
 export default function Home() {
+  const [records, setRecords] = useState<InvoiceRecord[]>([]);
+  const [draft, setDraft] = useState<InvoiceRecord | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("جارٍ تحميل الفواتير المحفوظة…");
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const dirtyRef = useRef(false);
+  const busyRef = useRef(false);
+  const activeRef = useRef<string | null>(null);
+  const generation = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [records, setRecords] = useState<InvoiceRecord[]>([demoInvoice]);
-  const [activeId, setActiveId] = useState(demoInvoice.id);
-  const [notice, setNotice] = useState("هذه واجهة المراجعة. لا يتم إرسال أي صورة إلى مزود ذكاء اصطناعي من هذه الصفحة.");
-  const [isDragging, setIsDragging] = useState(false);
 
-  const active = records.find((record) => record.id === activeId) ?? records[0];
-  const confirmed = useMemo(() => records.filter((record) => record.status === "confirmed"), [records]);
-  const reviewCount = records.filter((record) => record.status === "review").length;
-  const waitingCount = records.filter((record) => record.status === "ready").length;
-  const requiresAcknowledgement = active ? hasReviewWarnings(active) || Boolean(active.reviewNote.trim()) : false;
-
-  function updateActive(updater: (record: InvoiceRecord) => InvoiceRecord) {
-    if (!active) return;
-    setRecords((current) => current.map((record) => {
-      if (record.id !== active.id) return record;
-      const updated = updater(record);
-      return record.status === "confirmed" ? { ...updated, status: "review", acknowledged: false } : updated;
-    }));
-  }
-
-  function updateField(field: keyof Pick<InvoiceRecord, "invoiceNumber" | "issueDate" | "seller" | "customer" | "writtenTotal" | "reviewNote">, value: string) {
-    updateActive((record) => ({ ...record, [field]: value }));
-  }
-
-  function updateItem(itemId: string, field: keyof InvoiceItem, value: string) {
-    updateActive((record) => ({ ...record, items: record.items.map((item) => item.id === itemId ? { ...item, [field]: value } : item) }));
-  }
-
-  function addFiles(files: File[]) {
-    const accepted = files.filter((file) => file.type.startsWith("image/"));
-    if (accepted.length === 0) {
-      setNotice("اختر صور فواتير بصيغة JPG أو PNG.");
-      return;
+  const refresh = useCallback(async () => {
+    if (!activeRef.current) activeRef.current = localStorage.getItem("activeInvoiceId");
+    const before = generation.current;
+    const invoices = await api<InvoiceRecord[]>("invoices");
+    if (before !== generation.current || busyRef.current) return;
+    setRecords(invoices);
+    if (!dirtyRef.current) {
+      const selected =
+        invoices.find((record) => record.id === activeRef.current) ??
+        invoices[0];
+      if (selected) {
+        activeRef.current = selected.id;
+        localStorage.setItem("activeInvoiceId", selected.id);
+        setDraft(selected);
+      } else {
+        activeRef.current = null;
+        setDraft(null);
+      }
     }
-    const created: InvoiceRecord[] = accepted.map((file, index) => ({
-      id: `LOCAL-${Date.now()}-${index + 1}`,
-      filename: file.name,
-      status: "ready",
-      invoiceNumber: "",
-      issueDate: "",
-      seller: "",
-      customer: "",
-      writtenTotal: "",
-      reviewNote: "",
-      acknowledged: false,
-      previewUrl: URL.createObjectURL(file),
-      items: [newItem()],
-    }));
-    setRecords((current) => [...current, ...created]);
-    setActiveId(created[0].id);
-    setNotice(`تمت إضافة ${created.length} صورة محليًا. اربط زر الاستخراج بخدمة الوكيل قبل إرسالها.`);
-  }
+  }, []);
 
-  function onFileChange(event: ChangeEvent<HTMLInputElement>) {
-    addFiles(Array.from(event.target.files ?? []));
-    event.target.value = "";
-  }
+  useEffect(() => {
+    let alive = true;
+    void refresh()
+      .then(() => {
+        if (alive)
+          setNotice(
+            "ارفع الصور، ثم اختر استخراج لإرسالها إلى Gemini. راجع كل نتيجة قبل التأكيد.",
+          );
+      })
+      .catch((error: Error) => {
+        if (alive) setNotice(error.message);
+      });
+    const timer = setInterval(() => {
+      void refresh().catch((error: Error) => {
+        if (alive) setNotice(error.message);
+      });
+    }, 3000);
+    const unload = (event: BeforeUnloadEvent) => {
+      if (dirtyRef.current) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", unload);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener("beforeunload", unload);
+    };
+  }, [refresh]);
 
-  function onDrop(event: DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    setIsDragging(false);
-    addFiles(Array.from(event.dataTransfer.files));
-  }
-
-  function prepareForReview(record: InvoiceRecord) {
-    setRecords((current) => current.map((candidate) => candidate.id === record.id ? { ...candidate, status: "review", reviewNote: "" } : candidate));
-    setNotice("تم فتح نموذج مراجعة فارغ. ما زال استخراج الوكيل غير موصول؛ أدخل البيانات أو اربط نقطة API الآمنة.");
-  }
-
-  function confirmActive() {
-    if (!active) return;
-    if (requiresAcknowledgement && !active.acknowledged) {
-      setNotice("أكد أنك راجعت الحقول أو الملاحظات المعلّمة قبل إضافة الفاتورة إلى ملف Excel.");
+  function select(record: InvoiceRecord) {
+    if (
+      dirtyRef.current &&
+      !window.confirm("هناك تعديلات غير محفوظة. هل تريد تجاهلها؟")
+    )
       return;
-    }
-    setRecords((current) => current.map((record) => record.id === active.id ? { ...record, status: "confirmed" } : record));
-    setNotice("تم تأكيد الفاتورة. ستظهر مرة واحدة فقط في ملف Excel القادم.");
+    generation.current++;
+    activeRef.current = record.id;
+    localStorage.setItem("activeInvoiceId", record.id);
+    dirtyRef.current = false;
+    setDirty(false);
+    setDraft(record);
+    setAcknowledged(false);
+    setZoom(1);
+    setRotation(0);
   }
 
-  function exportConfirmed() {
-    if (confirmed.length === 0) {
-      setNotice("أكد فاتورة واحدة على الأقل قبل إنشاء ملف Excel.");
-      return;
-    }
-    const url = URL.createObjectURL(createConfirmedWorkbook(confirmed));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "الفواتير-المؤكدة.xlsx";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setNotice(`تم تنزيل ملف Excel يضم ${confirmed.length} فاتورة مؤكدة فقط.`);
+  function edit(change: (current: InvoiceRecord) => InvoiceRecord) {
+    dirtyRef.current = true;
+    generation.current++;
+    setDirty(true);
+    setAcknowledged(false);
+    setDraft((current) => (current ? change(current) : current));
   }
 
-  if (!active) return null;
-  const calculated = calculatedTotal(active);
+  async function run(action: () => Promise<void>) {
+    if (busyRef.current) return;
+    generation.current++;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await action();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "تعذر إكمال العملية");
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      generation.current++;
+    }
+  }
+
+  function acceptSaved(record: InvoiceRecord) {
+    dirtyRef.current = false;
+    setDirty(false);
+    setDraft(record);
+    setAcknowledged(false);
+    setRecords((current) =>
+      current.map((item) => (item.id === record.id ? record : item)),
+    );
+  }
+
+  async function upload(files: File[]) {
+    await run(async () => {
+      const added: InvoiceRecord[] = [];
+      const failures: string[] = [];
+      let duplicates = 0;
+      for (const file of files) {
+        if (
+          !["image/jpeg", "image/png"].includes(file.type) ||
+          file.size > 10 * 1024 * 1024
+        ) {
+          failures.push(file.name);
+          continue;
+        }
+        try {
+          const body = new FormData();
+          body.append("image", file);
+          const result = await api<{
+            invoice: InvoiceRecord;
+            duplicate: boolean;
+          }>("invoices", { method: "POST", body });
+          added.push(result.invoice);
+          if (result.duplicate) duplicates++;
+        } catch {
+          failures.push(file.name);
+        }
+      }
+      setRecords((current) => [
+        ...new Map(
+          [...current, ...added].map((record) => [record.id, record]),
+        ).values(),
+      ]);
+      if (added.length && !dirtyRef.current) select(added[0]);
+      setNotice(
+        `تم حفظ ${added.length - duplicates} صورة. مكررة: ${duplicates}.${failures.length ? ` تعذر رفع: ${failures.join("، ")}. استخدم JPG أو PNG حتى 10 MiB.` : ""}`,
+      );
+    });
+  }
+
+  const confirmed = records.filter(
+    (record) => record.status === "confirmed",
+  ).length;
+  const locked = busy || draft?.status === "processing";
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#workspace" aria-label="فاتورتي، صفحة العمل"><span className="brand-mark"><Icon name="sparkles" size={22} /></span><span>فاتورتي <small>مراجعة ذكية</small></span></a>
-        <nav className="workflow" aria-label="مراحل العمل">
-          <span className="workflow-item active"><b>١</b> رفع الفواتير</span><span className="workflow-line" />
-          <span className="workflow-item active"><b>٢</b> مراجعة النتائج</span><span className="workflow-line" />
-          <span className="workflow-item"><b>٣</b> تصدير Excel</span>
-        </nav>
-        <button className="profile-button" type="button" aria-label="الملف الشخصي"><span>م</span><Icon name="chevron" size={15} /></button>
+        <a className="brand" href="#workspace">
+          فاتورتي <small>مراجعة الفواتير العربية</small>
+        </a>
+        <nav className="workflow">رفع الصور ← استخراج ← مراجعة ← تصدير</nav>
       </header>
-
       <section className="welcome-row">
-        <div><p className="eyebrow"><span /> مساحة عمل آمنة</p><h1>حوّل الفواتير إلى بيانات <em>راجعتها بنفسك.</em></h1><p className="subhead">يرتب الوكيل الاستخراج، وأنت تراجع الصورة والبيانات قبل أن تدخل أي فاتورة إلى ملف Excel.</p></div>
-        <button className="export-button" type="button" onClick={exportConfirmed}><Icon name="download" size={18} /> تنزيل Excel {confirmed.length > 0 && <span>{confirmed.length}</span>}</button>
-      </section>
-
-      <section className="summary-grid" aria-label="ملخص الدفعة">
-        <article className="summary-card blue"><div><span>إجمالي الفواتير</span><strong>{records.length}</strong><small>يمكنك رفع الدفعة كاملة، حتى ٧٠ فاتورة</small></div><i><Icon name="file" size={23} /></i></article>
-        <article className="summary-card amber"><div><span>بانتظار المراجعة</span><strong>{reviewCount}</strong><small>{waitingCount ? `${waitingCount} في انتظار الاستخراج` : "كل النتائج جاهزة للمراجعة"}</small></div><i><Icon name="sparkles" size={23} /></i></article>
-        <article className="summary-card green"><div><span>فواتير مؤكدة</span><strong>{confirmed.length}</strong><small>هذه فقط تدخل ملف Excel</small></div><i><Icon name="check" size={23} /></i></article>
-      </section>
-
-      <section className="drop-zone-wrap">
-        <input ref={inputRef} className="sr-only" type="file" accept="image/png,image/jpeg" multiple onChange={onFileChange} />
-        <button className={`drop-zone ${isDragging ? "dragging" : ""}`} type="button" onClick={() => inputRef.current?.click()} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={onDrop}>
-          <span className="upload-icon"><Icon name="upload" size={24} /></span><span><b>أضف صور الفواتير</b><small>اسحب الملفات هنا أو اخترها من جهازك · JPG أو PNG</small></span><span className="select-files">اختيار ملفات</span>
+        <div>
+          <p className="eyebrow">مساحة عمل محلية</p>
+          <h1>
+            راجع الفاتورة، <em>ثم أكّدها.</em>
+          </h1>
+          <p className="subhead">
+            تبقى الصور والمراجعات على جهازك. زر الاستخراج يرسل الصورة إلى
+            Gemini.
+          </p>
+        </div>
+        <button
+          className="export-button"
+          disabled={!confirmed || busy || dirty}
+          onClick={() =>
+            void run(async () => {
+              const response = await fetch("/api/exports/invoices", {
+                headers: { Accept: "application/json" },
+                cache: "no-store",
+              });
+              if (!response.ok) throw new Error("تعذر تصدير الفواتير المؤكدة");
+              const url = URL.createObjectURL(await response.blob());
+              const anchor = document.createElement("a");
+              anchor.href = url;
+              anchor.download = "الفواتير-المؤكدة.xlsx";
+              anchor.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              setNotice("تم تنزيل الفواتير المؤكدة المحفوظة فقط.");
+            })
+          }
+        >
+          تنزيل Excel ({confirmed})
         </button>
       </section>
-
-      <p className="notice" aria-live="polite"><Icon name="sparkles" size={16} /> {notice}</p>
-
-      <section className="workspace" id="workspace">
-        <aside className="queue-panel">
-          <div className="panel-heading"><div><span>قائمة الدفعة</span><strong>{records.length} فاتورة</strong></div><button type="button" onClick={() => inputRef.current?.click()}><Icon name="plus" size={17} /> إضافة</button></div>
-          <div className="queue-filter"><span>الكل</span><small>غير مؤكدة {records.length - confirmed.length}</small></div>
-          <div className="queue-list">{records.map((record) => <button type="button" key={record.id} className={`queue-item ${record.id === active.id ? "selected" : ""}`} onClick={() => setActiveId(record.id)}><span className={`queue-file ${record.status}`}><Icon name="file" size={19} /></span><span className="queue-name"><b>{record.filename}</b><small>{record.invoiceNumber ? `رقم ${record.invoiceNumber}` : "بيانات جديدة"}</small></span><span className={`status-dot ${record.status}`} title={statusLabel[record.status]} /></button>)}</div>
-          <div className="queue-foot"><span><i className="dot green" /> مؤكد</span><span><i className="dot amber" /> للمراجعة</span><span><i className="dot gray" /> انتظار</span></div>
-        </aside>
-
-        <section className="invoice-preview" aria-label="صورة الفاتورة">
-          <div className="preview-heading"><div><span>صورة الفاتورة الأصلية</span><b>{active.filename}</b></div><div className="preview-tools"><button type="button" aria-label="تدوير الصورة"><Icon name="rotate" size={17} /></button><button type="button" aria-label="تكبير الصورة">＋</button></div></div>
-          <div className="paper-stage">
-            {active.previewUrl ? (
-              // The local object URL is intentionally never sent anywhere by this UI.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={active.previewUrl} alt={`معاينة ${active.filename}`} className="uploaded-invoice" />
-            ) : <article className="paper-demo" aria-label="نموذج فاتورة تجريبي"><div className="paper-logo">النــــور <small>للتوريدات العامة</small></div><div className="paper-meta"><span>رقم الفاتورة: <b>0023</b></span><span>التاريخ: ١٨ / ٠٩ / ٢٠٢٦</span></div><p>السادة / شركة البناء الحديث</p><table><thead><tr><th>البيان</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead><tbody><tr><td>أسمنت أبيض ٥٠ كجم</td><td>٣</td><td>٨٥٠</td><td>٢٬٥٥٠</td></tr><tr><td>رمل ناعم مغسول</td><td>٢</td><td>٢٬٣٠٠</td><td>٤٬٦٠٠</td></tr></tbody></table><div className="paper-total"><span>الإجمالي</span><b>٧٬١٥٠ ج.م</b></div><div className="paper-sign">التوقيع والختم</div></article>}
-            <span className="demo-watermark">معاينة {active.previewUrl ? "محلية" : "توضيحية"}</span>
+      <section className="summary-grid">
+        <article className="summary-card blue">
+          <div>
+            <span>إجمالي الفواتير</span>
+            <strong>{records.length}</strong>
           </div>
-          <p className="preview-caption"><Icon name="file" size={15} /> الصورة بجانب النتيجة حتى تقارن كل حقل قبل التأكيد.</p>
-        </section>
-
-        <section className="review-panel">
-          {active.status === "ready" ? <div className="empty-review"><span className="empty-icon"><Icon name="sparkles" size={27} /></span><h2>الفاتورة جاهزة للاستخراج</h2><p>أضفت الصورة محليًا. عند توصيل خدمة الوكيل، سترسل إليها من خادم آمن وليس من المتصفح.</p><button className="primary-button" type="button" onClick={() => prepareForReview(active)}><Icon name="arrow" size={18} /> فتح نموذج المراجعة</button></div> : <>
-            <div className="review-heading"><div><p>نتيجة الاستخراج</p><h2>راجع وصحّح البيانات</h2></div><span className={`review-status ${active.status}`}><i /> {statusLabel[active.status]}</span></div>
-            {active.status === "confirmed" && <div className="confirmed-banner"><Icon name="check" size={18} /> هذه الفاتورة ضمن ملف Excel. أي تعديل يعيدها تلقائيًا إلى المراجعة.</div>}
-            <div className="review-scroll">
-              <section className="form-section"><div className="section-title"><span>بيانات الفاتورة</span><small>يمكن تعديل كل قيمة</small></div><div className="form-grid"><label>رقم الفاتورة<input value={active.invoiceNumber} onChange={(event) => updateField("invoiceNumber", event.target.value)} placeholder="مثال: 0023" dir="ltr" /></label><label>التاريخ<input type="date" value={active.issueDate} onChange={(event) => updateField("issueDate", event.target.value)} /></label><label>اسم البائع<input value={active.seller} onChange={(event) => updateField("seller", event.target.value)} placeholder="اسم البائع" /></label><label className={active.reviewNote ? "attention" : ""}>اسم العميل<input value={active.customer} onChange={(event) => updateField("customer", event.target.value)} placeholder="اسم العميل" /><small>{active.reviewNote ? "راجعه من الصورة" : ""}</small></label><label className="full-width">الإجمالي المكتوب<input value={active.writtenTotal} onChange={(event) => updateField("writtenTotal", event.target.value)} placeholder="اتركه فارغًا إذا لم يكن واضحًا" inputMode="decimal" /></label></div></section>
-              <section className="form-section items-section"><div className="section-title"><span>الأصناف والخدمات</span><small>{active.items.length} سطر</small></div><div className="items-table-wrap"><table className="items-table"><thead><tr><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th>المبلغ المكتوب</th><th>المحسوب</th><th aria-label="حذف" /></tr></thead><tbody>{active.items.map((item) => <tr key={item.id}><td><input value={item.description} onChange={(event) => updateItem(item.id, "description", event.target.value)} placeholder="وصف الصنف" /></td><td><input value={item.quantity} onChange={(event) => updateItem(item.id, "quantity", event.target.value)} inputMode="decimal" /></td><td><input value={item.unitPrice} onChange={(event) => updateItem(item.id, "unitPrice", event.target.value)} inputMode="decimal" /></td><td><input value={item.writtenAmount} onChange={(event) => updateItem(item.id, "writtenAmount", event.target.value)} inputMode="decimal" /></td><td className="calculated-cell">{formatMoney(lineTotal(item))}</td><td><button className="delete-item" type="button" aria-label="حذف الصنف" onClick={() => updateActive((record) => ({ ...record, items: record.items.filter((candidate) => candidate.id !== item.id) }))} disabled={active.items.length === 1}><Icon name="trash" size={16} /></button></td></tr>)}</tbody></table></div><button className="add-item" type="button" onClick={() => updateActive((record) => ({ ...record, items: [...record.items, newItem()] }))}><Icon name="plus" size={16} /> إضافة سطر</button></section>
-              <section className={`calculation-card ${calculated === null ? "muted" : ""}`}><div><span>الإجمالي المحسوب من الأصناف</span><strong>{formatMoney(calculated)} <small>ج.م</small></strong></div><span>{calculated === null ? "أكمل الكمية وسعر الوحدة" : "قيمة محسوبة، لا تستبدل المكتوب"}</span></section>
-              <section className="form-section notes-section"><div className="section-title"><span>ملاحظات المراجع</span><small>تظهر في Excel</small></div><textarea value={active.reviewNote} onChange={(event) => updateField("reviewNote", event.target.value)} placeholder="اكتب أي توضيح أو سبب لترك قيمة فارغة..." rows={2} /></section>
-            </div>
-            <footer className="review-footer">{requiresAcknowledgement && <label className="acknowledgement"><input type="checkbox" checked={active.acknowledged} onChange={(event) => updateActive((record) => ({ ...record, acknowledged: event.target.checked }))} /><span>راجعت الحقول أو الملاحظة المعلّمة وأوافق على حفظها كما هي.</span></label>}<div className="footer-actions"><button className="secondary-button" type="button" onClick={() => setNotice("حُفظت التعديلات في ذاكرة هذه الواجهة. أضف التخزين الخلفي لحفظها بعد إعادة التشغيل.")}>حفظ مسودة</button><button className="confirm-button" type="button" onClick={confirmActive}><Icon name="check" size={19} /> {active.status === "confirmed" ? "تم التأكيد" : "تأكيد وإضافة إلى Excel"}</button></div></footer>
-          </>}
-        </section>
+        </article>
+        <article className="summary-card amber">
+          <div>
+            <span>قيد المراجعة</span>
+            <strong>
+              {records.filter((r) => r.status === "review").length}
+            </strong>
+          </div>
+        </article>
+        <article className="summary-card green">
+          <div>
+            <span>مؤكدة</span>
+            <strong>{confirmed}</strong>
+          </div>
+        </article>
       </section>
-
-      <section className="architecture-note"><span><Icon name="sparkles" size={18} /></span><p><b>ربط الوكيل الحقيقي:</b> ارفع الصورة إلى API خاص على الخادم، اطلب من Gemini نتيجةً مطابقةً لمخطط بيانات، خزّن الصورة والنتيجة الخام محليًا، ثم أعد النتيجة لهذه الشاشة للمراجعة. لا تضع مفتاح Gemini في Next.js أو المتصفح.</p></section>
+      <section className="drop-zone-wrap">
+        <input
+          className="sr-only"
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png"
+          multiple
+          onChange={(event) => {
+            void upload(Array.from(event.target.files ?? []));
+            event.target.value = "";
+          }}
+        />
+        <button
+          className="drop-zone"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            void upload(Array.from(event.dataTransfer.files));
+          }}
+        >
+          <span>
+            <b>أضف صور الفواتير</b>
+            <small>
+              اسحب الصور هنا أو اختر الملفات · JPG / PNG · حتى 10 MiB للصورة
+            </small>
+          </span>
+          <span className="select-files">اختيار ملفات</span>
+        </button>
+      </section>
+      <p className="notice" role="status">
+        {busy ? "جارٍ تنفيذ العملية… " : ""}
+        {notice}
+      </p>
+      {!records.length && (
+        <p className="empty-review">
+          لا توجد فواتير محفوظة بعد. أضف أول صورة للبدء.
+        </p>
+      )}
+      {draft && (
+        <section className="workspace" id="workspace">
+          <aside className="queue-panel">
+            <div className="panel-heading">
+              <strong>قائمة الفواتير</strong>
+              <button
+                disabled={busy || dirty}
+                onClick={() =>
+                  void run(async () => {
+                    let count = 0;
+                    for (const record of records.filter(
+                      (r) => r.status === "pending" || r.status === "failed",
+                    )) {
+                      await api(`invoices/${record.id}/extract`, {
+                        method: "POST",
+                      });
+                      count++;
+                    }
+                    setNotice(`تمت جدولة ${count} فاتورة للاستخراج بالتتابع.`);
+                  })
+                }
+              >
+                استخراج الانتظار
+              </button>
+            </div>
+            <div className="queue-list">
+              {records.map((record) => (
+                <button
+                  disabled={busy}
+                  type="button"
+                  className={`queue-item ${draft.id === record.id ? "selected" : ""}`}
+                  key={record.id}
+                  onClick={() => select(record)}
+                >
+                  <span className="queue-name">
+                    <b>{record.source_filename}</b>
+                    <small>
+                      {record.invoice_number || "بدون رقم"} ·{" "}
+                      {statusLabel[record.status]}
+                    </small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <section className="invoice-preview" aria-label="صورة الفاتورة">
+            <div className="preview-heading">
+              <b>{draft.source_filename}</b>
+              <div className="preview-tools">
+                <button
+                  aria-label="تدوير الصورة"
+                  onClick={() => setRotation((value) => (value + 90) % 360)}
+                >
+                  ↻
+                </button>
+                <button
+                  aria-label="تكبير الصورة"
+                  onClick={() => setZoom((value) => Math.min(3, value + 0.25))}
+                >
+                  ＋
+                </button>
+                <button
+                  aria-label="تصغير الصورة"
+                  onClick={() =>
+                    setZoom((value) => Math.max(0.5, value - 0.25))
+                  }
+                >
+                  −
+                </button>
+                <button
+                  onClick={() => {
+                    setZoom(1);
+                    setRotation(0);
+                  }}
+                >
+                  إعادة
+                </button>
+              </div>
+            </div>
+            <div className="image-viewport">
+              <div
+                style={{
+                  width: `${zoom * 100}%`,
+                  minHeight: `${zoom * 600}px`,
+                }}
+              >
+                {/* Local Laravel source image; keep the original bytes available for review. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={draft.image_url}
+                  alt="صورة الفاتورة الأصلية"
+                  style={{ width: "100%", transform: `rotate(${rotation}deg)` }}
+                />
+              </div>
+            </div>
+          </section>
+          <section className="review-panel">
+            <div className="review-heading">
+              <div>
+                <p>{statusLabel[draft.status]}</p>
+                <h2>راجع وصحّح البيانات</h2>
+              </div>
+              <span>{dirty ? "تعديلات غير محفوظة" : "محفوظة"}</span>
+            </div>
+            {draft.extraction_error && (
+              <p className="notice">{draft.extraction_error}</p>
+            )}
+            {(draft.status === "pending" || draft.status === "failed") && (
+              <button
+                className="primary-button"
+                disabled={busy || dirty}
+                onClick={() =>
+                  void run(async () => {
+                    acceptSaved(
+                      await api<InvoiceRecord>(`invoices/${draft.id}/extract`, {
+                        method: "POST",
+                      }),
+                    );
+                    setNotice(
+                      "تمت جدولة الاستخراج. شغّل عامل الطابور وخدمة Python.",
+                    );
+                  })
+                }
+              >
+                استخراج هذه الفاتورة
+              </button>
+            )}
+            {draft.status === "processing" && (
+              <p className="notice">
+                بانتظار العامل أو جارٍ الاستخراج. ستظهر النتيجة تلقائياً.
+              </p>
+            )}
+            {draft.status === "confirmed" && (
+              <p className="confirmed-banner">
+                أي تعديل محفوظ يعيد الفاتورة إلى المراجعة ويستبعدها من التصدير
+                حتى التأكيد مجدداً.
+              </p>
+            )}
+            <fieldset disabled={locked} className="review-fields">
+              <div className="review-scroll">
+                <section className="form-section">
+                  <div className="form-grid">
+                    {headerFields.map(([field, label]) => (
+                      <label key={field}>
+                        {label}
+                        <input
+                          value={draft[field] ?? ""}
+                          onChange={(event) =>
+                            edit((current) => ({
+                              ...current,
+                              [field]: event.target.value,
+                              unresolved_fields:
+                                current.unresolved_fields.filter(
+                                  (name) => name !== field,
+                                ),
+                            }))
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </section>
+                <section className="form-section items-section">
+                  <div className="section-title">
+                    <span>الأصناف</span>
+                    <small>{draft.items.length} سطر</small>
+                  </div>
+                  <div className="items-table-wrap">
+                    <table className="items-table">
+                      <thead>
+                        <tr>
+                          {itemFields.map(([field, label]) => (
+                            <th key={field}>{label}</th>
+                          ))}
+                          <th>المحسوب المحفوظ</th>
+                          <th>ملاحظات السطر</th>
+                          <th>حذف</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {draft.items.map((item, index) => (
+                          <tr key={index}>
+                            {itemFields.map(([field, label]) => (
+                              <td key={field}>
+                                <input
+                                  aria-label={`${label} السطر ${index + 1}`}
+                                  value={item[field] ?? ""}
+                                  onChange={(event) =>
+                                    edit((current) => ({
+                                      ...current,
+                                      items: current.items.map((row, i) =>
+                                        i === index
+                                          ? {
+                                              ...row,
+                                              [field]: event.target.value,
+                                              unresolved_fields:
+                                                row.unresolved_fields.filter(
+                                                  (name) => name !== field,
+                                                ),
+                                            }
+                                          : row,
+                                      ),
+                                    }))
+                                  }
+                                />
+                              </td>
+                            ))}
+                            <td>
+                              {dirty
+                                ? "احفظ للحساب"
+                                : (item.calculated_amount ?? "—")}
+                            </td>
+                            <td>
+                              <input
+                                aria-label={`ملاحظات السطر ${index + 1}`}
+                                value={item.review_note ?? ""}
+                                onChange={(event) =>
+                                  edit((current) => ({
+                                    ...current,
+                                    items: current.items.map((row, i) =>
+                                      i === index
+                                        ? {
+                                            ...row,
+                                            review_note: event.target.value,
+                                          }
+                                        : row,
+                                    ),
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <button
+                                aria-label={`حذف السطر ${index + 1}`}
+                                onClick={() =>
+                                  edit((current) => ({
+                                    ...current,
+                                    items: current.items.filter(
+                                      (_, i) => i !== index,
+                                    ),
+                                  }))
+                                }
+                              >
+                                ×
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button
+                    className="add-item"
+                    onClick={() =>
+                      edit((current) => ({
+                        ...current,
+                        items: [
+                          ...current.items,
+                          {
+                            description: null,
+                            quantity_text: null,
+                            unit_price_text: null,
+                            written_amount_text: null,
+                            review_note: null,
+                            unresolved_fields: [],
+                          } satisfies InvoiceItem,
+                        ],
+                      }))
+                    }
+                  >
+                    ＋ إضافة سطر
+                  </button>
+                </section>
+                <section className="calculation-card">
+                  <span>الإجمالي المحسوب</span>
+                  <strong>
+                    {dirty
+                      ? "احفظ لتحديث الحساب"
+                      : (draft.calculated_total ?? "غير مكتمل")}
+                  </strong>
+                </section>
+                <section className="form-section">
+                  <label>
+                    ملاحظات المراجع
+                    <textarea
+                      value={draft.review_notes ?? ""}
+                      rows={2}
+                      onChange={(event) =>
+                        edit((current) => ({
+                          ...current,
+                          review_notes: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </section>
+                {!dirty && draft.warnings.length > 0 && (
+                  <section className="review-warnings">
+                    <b>حقول تحتاج مراجعة أو إقراراً</b>
+                    <ul>
+                      {draft.warnings.map((warning, index) => (
+                        <li key={index}>{warning.message}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </div>
+            </fieldset>
+            <footer className="review-footer">
+              {!dirty &&
+                draft.status === "review" &&
+                draft.warnings.length > 0 && (
+                  <label className="acknowledgement">
+                    <input
+                      type="checkbox"
+                      checked={acknowledged}
+                      onChange={(event) =>
+                        setAcknowledged(event.target.checked)
+                      }
+                    />
+                    <span>
+                      راجعت جميع الحقول الناقصة والفروق والملاحظات وأقرّ حفظها
+                      كما هي.
+                    </span>
+                  </label>
+                )}
+              <div className="footer-actions">
+                <button
+                  className="secondary-button"
+                  disabled={
+                    locked ||
+                    (!dirty &&
+                      draft.status !== "pending" &&
+                      draft.status !== "failed")
+                  }
+                  onClick={() =>
+                    void run(async () => {
+                      acceptSaved(
+                        await api<InvoiceRecord>(`invoices/${draft.id}`, {
+                          method: "PUT",
+                          body: JSON.stringify(draftPayload(draft)),
+                        }),
+                      );
+                      setNotice(
+                        "حُفظت المسودة والحسابات. راجع التحذيرات قبل التأكيد.",
+                      );
+                    })
+                  }
+                >
+                  حفظ مسودة
+                </button>
+                <button
+                  className="confirm-button"
+                  disabled={
+                    locked ||
+                    dirty ||
+                    draft.status !== "review" ||
+                    (draft.warnings.length > 0 && !acknowledged)
+                  }
+                  onClick={() =>
+                    void run(async () => {
+                      acceptSaved(
+                        await api<InvoiceRecord>(
+                          `invoices/${draft.id}/confirm`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({
+                              version: draft.version,
+                              acknowledged,
+                            }),
+                          },
+                        ),
+                      );
+                      setNotice("تم تأكيد الفاتورة وإدراجها في التصدير.");
+                    })
+                  }
+                >
+                  تأكيد الفاتورة
+                </button>
+              </div>
+            </footer>
+          </section>
+        </section>
+      )}
     </main>
   );
 }

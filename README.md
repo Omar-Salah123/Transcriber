@@ -1,93 +1,110 @@
 # Transcriber
 
-A local Arabic invoice review app, intended to turn roughly 80 photographed,
-handwritten invoices into a combined Excel workbook.
+Arabic handwritten invoice extraction, human review, and cumulative Excel export
+for one operator running locally. React (Next.js) talks to Laravel, which owns
+SQLite records and private images. Laravel queues extraction requests to a private
+Python LangGraph/Gemini service. Nothing is sent to Gemini until extraction is requested.
 
-**Status: front-end review prototype plus backend scaffolding.** The Next.js
-frontend now provides an Arabic right-to-left review workspace: local image
-selection, an editable invoice and item table, an acknowledgement gate,
-confirmation state, and a confirmed-only `.xlsx` download. It deliberately
-does not call an AI provider or persist client data yet. The Laravel and Python
-services are still scaffolds for the planned secure extraction and persistence
-work.
+Implemented: batch image upload, duplicate detection, sequential extraction,
+editable RTL review, saved drafts, image zoom/rotation, decimal checks,
+acknowledgment, idempotent confirmation, and confirmed-only Excel exports.
+Live handwriting accuracy has **not** been evaluated. See [the pilot](docs/pilot.md).
 
-## Intended workflow
+## Install
 
-1. Upload a batch of JPEG or PNG invoice images.
-2. Extract invoice metadata and all item rows using a Gemini vision model.
-3. Review the image beside editable Arabic fields and an item table.
-4. Correct values or acknowledge flagged blanks, then confirm each invoice.
-5. Download one workbook with invoice and item worksheets for confirmed records.
+Requirements: Python 3.12, uv 0.12.17 or newer, Node.js 22+, PHP 8.4 with
+PDO SQLite, fileinfo, GD, mbstring, XML, and zip, and Composer. The current Composer
+lock contains dependencies requiring PHP 8.4. Keep all servers bound to loopback.
 
-Arabic handwriting accuracy must be evaluated on representative invoices before
-processing the full batch. Human review is a required part of the workflow.
-
-## Quick start
-
-### Next.js review interface
-
-```powershell
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:3000`. See [frontend/README.md](frontend/README.md)
-for what is usable now and the required server-side work before processing real
-client invoices.
-
-### Original Python scaffold
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then
-run these commands from the repository root:
+From the repository root (PowerShell):
 
 ```powershell
 uv python install 3.12
 uv sync --locked
-uv run streamlit run src/transcriber/app.py --server.address 127.0.0.1
+Copy-Item ai-service/.env.example ai-service/.env
+cd backend
+composer install
+Copy-Item .env.example .env
+php artisan key:generate
+New-Item -ItemType File -Path database/database.sqlite -ErrorAction SilentlyContinue
+php artisan migrate
+cd ../frontend
+npm ci
 ```
 
-Open the local URL printed by Streamlit, normally `http://127.0.0.1:8501`.
-Stop the server with Ctrl+C. No manual virtual-environment activation is needed.
+Do not overwrite an existing `.env` or database when updating. In
+`ai-service/.env`, set `GEMINI_API_KEY` and `GEMINI_MODEL` to a model verified as
+available for your project. The previously proposed `gemini-3.8-flash` was never
+verified; there is intentionally no fallback model. Credentials stay in Python.
 
-`.env.example` documents configuration reserved for the implementation phase.
-When configuration is implemented, copy it to `.env` (`Copy-Item .env.example
-.env` in PowerShell, or `cp .env.example .env` on macOS/Linux) and set your own key.
-The placeholder does not load or use these settings.
+## Run
 
-## Development
+Open four terminals, starting from the repository root:
 
 ```powershell
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+# 1. Private extraction service
+uv run python -m transcriber_id.service
 ```
 
-Python 3.12 and dependencies are managed with `uv` and `uv.lock`. The stack is
-Streamlit, Google GenAI SDK, Pydantic, Pillow, python-dotenv, and Python's built-in
-SQLite. Excel generation will be added with the export feature.
-
-```text
-.github/                 CI and pull-request template
-docs/                    Agreed implementation plan
-src/transcriber/
-  app.py                 Runnable Arabic placeholder
-  extraction/            Future Gemini integration
-  schemas/               Future validated invoice and item models
-  storage/               Future SQLite and image persistence
-  validation/            Future numeral normalization and arithmetic checks
-  export/                Future Excel generation
-  ui/                    Future review interface
-tests/fixtures/          Synthetic test data only
-data/                    Ignored local runtime data
+```powershell
+# 2. Laravel API (upload limits also apply to the child PHP server)
+cd backend/public
+php -d upload_max_filesize=11M -d post_max_size=12M -S 127.0.0.1:8000 ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php
 ```
 
-Start with the [implementation plan](docs/implementation-plan.md), follow
-[contributor instructions](AGENTS.md), and use the
-[collaboration guide](CONTRIBUTING.md) for branches, checks, and GitHub setup.
+```powershell
+# 3. Exactly one extraction worker
+cd backend
+php artisan queue:work --tries=1 --timeout=150 --sleep=1
+```
 
-## Data handling
+```powershell
+# 4. Review interface
+cd frontend
+npm run dev
+```
 
-The planned app stores images and review records locally and sends invoice images
-to the configured Gemini API for extraction. It is not a fully offline app.
-Do not commit client invoices, API keys, model outputs, databases, or exports.
-Use synthetic examples for issues, pull requests, and automated tests.
+Open **http://127.0.0.1:3000**. Stop each process with Ctrl+C. For a production
+frontend build use `npm run build` then `npm start` instead of `npm run dev`.
+Do not expose this single-operator application to a network or the internet.
+
+## Operator workflow
+
+1. Add JPEG/PNG files, at most 10 MiB and 12,000 pixels per dimension. Identical
+   file contents return the existing invoice, even if its filename changes.
+2. Extract one invoice or all waiting/failed invoices. This sends images to Gemini
+   and may incur API charges. Processing is sequential; the interface polls progress.
+3. Compare the image with every field and row. Preserve uncertain date text, Arabic
+   text, and identifiers such as `000081`. Add/remove rows and record review notes.
+4. **Save draft** before confirming. Saved values survive refresh/restart; unsaved
+   changes do not. Calculations and warnings refresh after saving.
+5. Review and acknowledge every remaining warning, then confirm. Repeated
+   confirmation cannot duplicate rows. Editing and saving confirmed data reopens review.
+6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
+
+Unknowns remain blank. Written amounts stay separate from calculated amounts.
+Arabic/Persian numerals and well-formed thousands separators are supported;
+ambiguous numeric strings are flagged rather than guessed. Decimal inputs support
+up to four fractional digits. Products requiring more precision or exceeding the
+supported range remain uncalculated and require acknowledgment.
+
+## Storage, backup, and troubleshooting
+
+- SQLite: `backend/database/database.sqlite`; images: `backend/storage/app/private`.
+  Back up both while all application processes are stopped. Original model messages
+  and extraction attempts are private database records, independent of reviewed values.
+- Failed extraction: check Python is running, its key/model configuration, and the
+  queue worker. Retry from the interface. No automatic paid retry is performed.
+- Waiting indefinitely: start the worker. Requests interrupted after they start
+  become retryable after five minutes when the queue is refreshed.
+- Conflict while saving: another tab changed the invoice. Select its queue entry
+  again to reload; the application will ask before discarding unsaved changes.
+- A pending/failed invoice may be transcribed manually and saved without Gemini.
+- New versions: stop servers, back up data, install locked dependencies, run
+  `php artisan migrate`, rebuild the frontend, and restart all processes. Never use
+  `migrate:fresh` on real invoice data.
+
+Keep invoices, model responses, databases, keys, and generated workbooks out of Git.
+The source image supplied during development is not a fixture and is not committed.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and [the architecture](docs/implementation-plan.md)
+for API contracts and remaining acceptance work.
