@@ -1,0 +1,53 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Python environments, build output, and tooling caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+pytest-cache-files-*/
+.ruff_cache/
+.mypy_cache/
+.uv-cache/
+.coverage*
+htmlcov/
+coverage.xml
+
+# Client data and generated artifacts
+/data/*
+!/data/README.md
+/uploads/
+/exports/
+/outputs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.xlsx
+*.xls
+*.csv
+*.jpeg
+*.jpg
+*.png
+*.webp
+*.pdf
+*.log
+
+# Editor and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
