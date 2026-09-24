@@ -85,6 +85,9 @@ Do not expose this single-operator application to a network or the internet.
 5. Review and acknowledge every remaining warning, then confirm. Repeated
    confirmation cannot duplicate rows. Editing and saving confirmed data reopens review.
 6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
+   Interpretation columns follow the existing columns on each sheet. Valid
+   interpretations are numeric cells; invalid text stays literal and missing
+   interpretations remain blank.
 
 Unknowns remain blank. Written amounts stay separate from calculated amounts.
 The source transcription stays separate from any shorthand interpretation;
@@ -93,6 +96,12 @@ Arabic/Persian numerals and well-formed thousands separators are supported;
 ambiguous numeric strings are flagged rather than guessed. Decimal inputs support
 up to four fractional digits. Products requiring more precision or exceeding the
 supported range remain uncalculated and require acknowledgment.
+Reviewed fields, API responses, and exports display digits as `0-9`, including
+digits embedded in Arabic text. Source separators and punctuation remain as written;
+the original model output and extraction candidate remain available privately.
+On upgrade, `php artisan migrate` normalizes older interpreted values and
+recalculates their totals. Affected confirmed invoices return to review and
+must be confirmed again before export.
 
 ## Storage, backup, and troubleshooting
 

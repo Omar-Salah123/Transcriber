@@ -19,8 +19,10 @@ const headerFields = [
 ] as const;
 const itemFields = [
   ["description", "الوصف"],
-  ["quantity_text", "Quantity"],
+  ["quantity_text", "الكمية"],
+  ["unit_price_text", "سعر الوحدة"],
   ["unit_price_interpreted_text", "تفسير سعر الوحدة (0-9)"],
+  ["written_amount_text", "المبلغ المكتوب"],
   ["written_amount_interpreted_text", "تفسير المبلغ (0-9)"],
 ] as const;
 
@@ -512,6 +514,7 @@ export default function Home() {
                           {itemFields.map(([field, label]) => (
                             <th key={field}>{label}</th>
                           ))}
+                          <th>المحسوب المحفوظ</th>
                           <th>ملاحظات السطر</th>
                           <th>حذف</th>
                         </tr>
@@ -557,6 +560,11 @@ export default function Home() {
                                 />
                               </td>
                             ))}
+                            <td className="calculated-cell">
+                              {dirty
+                                ? "احفظ للحساب"
+                                : (item.calculated_amount ?? "—")}
+                            </td>
                             <td>
                               <input
                                 aria-label={`ملاحظات السطر ${index + 1}`}

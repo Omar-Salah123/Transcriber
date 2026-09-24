@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Invoice;
 use App\Services\InvoiceContract;
 use App\Services\InvoiceReviewService;
+use App\Services\WesternDigits;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Arr;
@@ -77,13 +78,14 @@ class ExtractInvoice implements ShouldQueue
 
                 return;
             }
-            $invoice->fill(Arr::except($candidate, ['items']));
             $invoice->original_extraction = $candidate;
+            $reviewed = WesternDigits::inArray($candidate);
+            $invoice->fill(Arr::except($reviewed, ['items']));
             $invoice->status = 'review';
             $invoice->review_acknowledged = false;
             $invoice->save();
             $invoice->items()->delete();
-            foreach ($candidate['items'] as $index => $item) {
+            foreach ($reviewed['items'] as $index => $item) {
                 $invoice->items()->create($item + ['row_order' => $index + 1]);
             }
             $invoice->load('items');

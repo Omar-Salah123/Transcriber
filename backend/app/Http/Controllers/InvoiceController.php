@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Services\InvoiceContract;
 use App\Services\InvoiceReviewService;
 use App\Services\InvoiceWorkbook;
+use App\Services\WesternDigits;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -58,12 +59,13 @@ class InvoiceController extends Controller
     public function update(Request $request, Invoice $invoice): mixed
     {
         $data = $request->validate(InvoiceContract::rules() + ['version' => ['required', 'integer', 'min:1']]);
+        $data = WesternDigits::inArray($data);
 
         return DB::transaction(function () use ($data, $invoice) {
             $invoice = Invoice::lockForUpdate()->findOrFail($invoice->id);
             abort_if($invoice->version !== $data['version'], 409, 'تغيرت الفاتورة. أعد تحميلها قبل الحفظ.');
             abort_if($invoice->status === 'processing', 409, 'انتظر انتهاء الاستخراج');
-            if ($invoice->written_total_text !== $data['written_total_text'] && ! array_key_exists('written_total_interpreted_text', $data)) {
+            if (WesternDigits::in($invoice->written_total_text) !== $data['written_total_text'] && ! array_key_exists('written_total_interpreted_text', $data)) {
                 $data['written_total_interpreted_text'] = null;
             }
             $invoice->fill(Arr::except($data, ['items', 'version']));
