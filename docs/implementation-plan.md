@@ -92,9 +92,11 @@ available raw output. It rejects browser Origin headers. Credentials stay in Pyt
 
 Two Arabic worksheets: **الفواتير** and **الأصناف**, linked by internal invoice ID.
 Both use RTL, filters, frozen headers, typed amounts, literal identifiers/text,
-blank missing values, review notes, and separately labeled derived totals. The item
-sheet shows the interpreted unit price and amount in their respective columns when
-available; the invoice sheet keeps a separate shorthand interpretation for its total.
+blank missing values, and review notes. The item sheet shows one unit price and one
+amount column; the invoice sheet shows one total column, تفسير الإجمالي المكتوب.
+Each uses the reviewed interpretation when present, otherwise the written value.
+Calculated amounts and totals remain in review/storage and are omitted from export;
+missing written and interpreted values stay blank even when a calculation exists.
 Acknowledged review warnings remain in the application and are omitted from export.
 Export reads a database snapshot of confirmed invoices and items.
 

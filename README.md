@@ -88,10 +88,12 @@ Do not expose this single-operator application to a network or the internet.
    confirmation cannot duplicate rows. Editing and saving confirmed data reopens review.
 6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
    The item sheet shows one price and one amount column, using interpreted values
-   when available. The invoice sheet retains a separate total interpretation.
+   when available. The invoice sheet shows one total column, تفسير الإجمالي المكتوب,
+   using the interpreted total when present and otherwise the written total.
+   Calculated amounts and totals remain in review and are omitted from Excel.
    Valid interpretations are numeric cells; invalid text stays literal.
 
-Unknowns remain blank. Written amounts stay separate from calculated amounts.
+Unknowns remain blank. In review and storage, written amounts stay separate from calculated amounts.
 The source transcription stays separate from any shorthand interpretation;
 calculations use a present interpretation only after validating its numeric form.
 Arabic/Persian numerals and well-formed thousands separators are supported;

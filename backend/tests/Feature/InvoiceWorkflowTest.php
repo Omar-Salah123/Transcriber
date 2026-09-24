@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\ExtractInvoice;
 use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use App\Services\InvoiceReviewService;
 use App\Services\InvoiceWorkbook;
 use App\Services\VertexRequestCooldown;
@@ -284,12 +285,11 @@ class InvoiceWorkflowTest extends TestCase
         try {
             app(InvoiceWorkbook::class)->write(Invoice::with('items')->get(), $path);
             $book = IOFactory::load($path);
-            $this->assertSame('140،~~~', $book->getSheet(0)->getCell('F2')->getValue());
-            $this->assertSame('K', $book->getSheet(0)->getHighestColumn());
-            $this->assertSame('تفسير الإجمالي المكتوب', $book->getSheet(0)->getCell('K1')->getValue());
-            $this->assertSame(140000.0, $book->getSheet(0)->getCell('K2')->getValue());
-            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(0)->getCell('K2')->getDataType());
-            $this->assertSame('H', $book->getSheet(1)->getHighestColumn());
+            $this->assertSame('I', $book->getSheet(0)->getHighestColumn());
+            $this->assertSame('تفسير الإجمالي المكتوب', $book->getSheet(0)->getCell('F1')->getValue());
+            $this->assertSame(140000.0, $book->getSheet(0)->getCell('F2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(0)->getCell('F2')->getDataType());
+            $this->assertSame('G', $book->getSheet(1)->getHighestColumn());
             $this->assertSame(70000.0, $book->getSheet(1)->getCell('E2')->getValue());
             $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('E2')->getDataType());
             $this->assertSame(140000.0, $book->getSheet(1)->getCell('F2')->getValue());
@@ -503,10 +503,10 @@ class InvoiceWorkflowTest extends TestCase
             $this->assertSame('000081', $headers->getCell('B2')->getValue());
             $this->assertSame(DataType::TYPE_STRING, $headers->getCell('B2')->getDataType());
             $this->assertNull($headers->getCell('E2')->getValue());
-            $this->assertSame('K', $headers->getHighestColumn());
-            $this->assertSame('=SUM(1,2)', $headers->getCell('K2')->getValue());
-            $this->assertSame(DataType::TYPE_STRING, $headers->getCell('K2')->getDataType());
-            $this->assertSame('H', $items->getHighestColumn());
+            $this->assertSame('I', $headers->getHighestColumn());
+            $this->assertSame('=SUM(1,2)', $headers->getCell('F2')->getValue());
+            $this->assertSame(DataType::TYPE_STRING, $headers->getCell('F2')->getDataType());
+            $this->assertSame('G', $items->getHighestColumn());
             $this->assertSame('=SUM(A1:A2)', $items->getCell('E2')->getValue());
             $this->assertSame(DataType::TYPE_STRING, $items->getCell('E2')->getDataType());
             $this->assertSame(DataType::TYPE_NUMERIC, $items->getCell('F2')->getDataType());
@@ -518,6 +518,33 @@ class InvoiceWorkflowTest extends TestCase
             }
         } finally {
             unlink($path);
+        }
+    }
+
+    public function test_export_consolidated_amounts_preserve_written_fallback_zero_and_blanks(): void
+    {
+        foreach ([['١٢٫٥', null, 12.5], ['١٢٫٥', '0', 0.0], [null, null, null]] as [$written, $interpreted, $expected]) {
+            $invoice = new Invoice([
+                'status' => 'confirmed', 'written_total_text' => $written,
+                'written_total_interpreted_text' => $interpreted, 'calculated_total' => '999',
+            ]);
+            $invoice->setRelation('items', collect([new InvoiceItem([
+                'row_order' => 1, 'written_amount_text' => $written,
+                'written_amount_interpreted_text' => $interpreted, 'calculated_amount' => '999',
+                'review_note' => 'ملاحظة',
+            ])]));
+            $book = app(InvoiceWorkbook::class)->build(collect([$invoice]));
+            try {
+                $this->assertSame($expected, $book->getSheet(0)->getCell('F2')->getValue());
+                $this->assertSame($expected, $book->getSheet(1)->getCell('F2')->getValue());
+                $this->assertSame('المبلغ', $book->getSheet(1)->getCell('F1')->getValue());
+                $this->assertSame('ملاحظات', $book->getSheet(1)->getCell('G1')->getValue());
+                $this->assertSame('ملاحظة', $book->getSheet(1)->getCell('G2')->getValue());
+                $this->assertSame('A1:I2', $book->getSheet(0)->getAutoFilter()->getRange());
+                $this->assertSame('A1:G2', $book->getSheet(1)->getAutoFilter()->getRange());
+            } finally {
+                $book->disconnectWorksheets();
+            }
         }
     }
 

@@ -18,8 +18,8 @@ class InvoiceWorkbook
         $book = new Spreadsheet;
         $headers = $book->getActiveSheet()->setTitle('الفواتير');
         $items = $book->createSheet()->setTitle('الأصناف');
-        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تفسير الإجمالي المكتوب']);
-        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ', 'المبلغ المحسوب', 'ملاحظات']);
+        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'تفسير الإجمالي المكتوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع']);
+        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ', 'ملاحظات']);
         $invoiceRow = 2;
         $itemRow = 2;
         foreach ($invoices as $invoice) {
@@ -27,13 +27,12 @@ class InvoiceWorkbook
                 continue;
             }
             $this->row($headers, $invoiceRow++, [$invoice->id, WesternDigits::in($invoice->invoice_number), WesternDigits::in($invoice->date_text), WesternDigits::in($invoice->seller), WesternDigits::in($invoice->customer),
-                $this->numberOrText($invoice->written_total_text), $this->numeric($invoice->calculated_total),
-                $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', WesternDigits::in($invoice->source_filename), WesternDigits::in($invoice->review_notes),
-                $this->interpretedNumberOrText($invoice->written_total_interpreted_text)]);
+                $this->effectiveAmount($invoice->written_total_text, $invoice->written_total_interpreted_text),
+                $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', WesternDigits::in($invoice->source_filename), WesternDigits::in($invoice->review_notes)]);
             foreach ($invoice->items as $item) {
                 $this->row($items, $itemRow++, [$invoice->id, $item->row_order, WesternDigits::in($item->description),
                     $this->numberOrText($item->quantity_text), $this->effectiveAmount($item->unit_price_text, $item->unit_price_interpreted_text),
-                    $this->effectiveAmount($item->written_amount_text, $item->written_amount_interpreted_text), $this->numeric($item->calculated_amount),
+                    $this->effectiveAmount($item->written_amount_text, $item->written_amount_interpreted_text),
                     WesternDigits::in($item->review_note)]);
             }
         }
@@ -49,11 +48,6 @@ class InvoiceWorkbook
         }
 
         return $book;
-    }
-
-    private function numeric(?string $value): ?float
-    {
-        return $value === null ? null : (float) $value;
     }
 
     private function numberOrText(?string $value): string|float|null
