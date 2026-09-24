@@ -6,6 +6,7 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.genai.errors import ClientError
 from PIL import Image
 from transcriber_id.agents.invoice_graph import build_invoice_graph
 from transcriber_id.extraction.gemini import ExtractionFailure, extract_from_gemini
@@ -59,6 +60,19 @@ def test_timeout_becomes_safe_error_and_next_attempt_can_run() -> None:
     result = build_invoice_graph(fail).invoke(state())
     assert result["errors"] == ["Extraction failed: TimeoutError"]
     assert "sensitive" not in str(result["errors"])
+
+
+@pytest.mark.parametrize("status", [400, 429, 503])
+def test_provider_error_keeps_only_safe_http_status(status: int) -> None:
+    def fail(*_):
+        raise ClientError(
+            status,
+            {"error": {"code": status, "message": "private request details"}},
+        )
+
+    result = build_invoice_graph(fail).invoke(state())
+    assert result["errors"] == [f"Provider HTTP {status}"]
+    assert "private request details" not in str(result)
 
 
 def test_media_type_must_match_image_bytes() -> None:

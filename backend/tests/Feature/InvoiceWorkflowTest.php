@@ -308,6 +308,48 @@ class InvoiceWorkflowTest extends TestCase
         $this->assertDatabaseCount('extraction_attempts', 1);
     }
 
+    public function test_provider_rate_limit_is_shown_without_exposing_service_details(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $url = '/api/invoices/'.$invoice['id'];
+        $this->postJson($url.'/extract')->assertAccepted();
+        $model = Invoice::findOrFail($invoice['id']);
+        Http::fake(['*' => Http::response([
+            'errors' => ['Provider HTTP 429'],
+            'raw_model_output' => null,
+            'detail' => 'private provider response',
+        ], 422)]);
+
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+
+        $response = $this->getJson($url)->assertOk()->assertJsonPath('status', 'failed');
+        $this->assertStringContainsString('429', $response->json('extraction_error'));
+        $this->assertStringNotContainsString('private provider response', $response->getContent());
+        $this->assertSame('failed', $model->fresh()->status);
+        $this->postJson($url.'/extract')->assertAccepted();
+    }
+
+    public function test_invalid_model_output_has_a_specific_safe_failure_message(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $url = '/api/invoices/'.$invoice['id'];
+        $this->postJson($url.'/extract')->assertAccepted();
+        $model = Invoice::findOrFail($invoice['id']);
+        Http::fake(['*' => Http::response([
+            'errors' => ['Invalid structured output.'],
+            'raw_model_output' => 'private model output',
+        ], 422)]);
+
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+
+        $response = $this->getJson($url)->assertOk()->assertJsonPath('status', 'failed');
+        $this->assertStringContainsString('بيانات منظمة', $response->json('extraction_error'));
+        $this->assertStringNotContainsString('private model output', $response->getContent());
+        $this->assertSame('private model output', DB::table('extraction_attempts')->first()->raw_model_output);
+    }
+
     public function test_timeout_and_stale_worker_results_do_not_overwrite_review(): void
     {
         Queue::fake();

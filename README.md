@@ -108,8 +108,12 @@ must be confirmed again before export.
 - SQLite: `backend/database/database.sqlite`; images: `backend/storage/app/private`.
   Back up both while all application processes are stopped. Original model messages
   and extraction attempts are private database records, independent of reviewed values.
-- Failed extraction: check Python is running, its key/model configuration, and the
-  queue worker. Retry from the interface. No automatic paid retry is performed.
+- Failed extraction: select the invoice to see whether the image, provider request,
+  model output, service connection, or timeout failed. A provider 429 means its
+  request limit or quota was reached; check the quota and retry later. Older
+  failures may still have the generic message because their provider status was
+  not retained. Retry one failed invoice to get a more specific result. No
+  automatic paid retry is performed.
 - Waiting indefinitely: start the worker. Requests interrupted after they start
   become retryable after five minutes when the queue is refreshed.
 - Conflict while saving: another tab changed the invoice. Select its queue entry

@@ -8,11 +8,13 @@ use App\Services\InvoiceReviewService;
 use App\Services\WesternDigits;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class ExtractInvoice implements ShouldQueue
@@ -50,10 +52,17 @@ class ExtractInvoice implements ShouldQueue
             ]);
             $body = $response->json();
             $raw = is_array($body) && is_string($body['raw_model_output'] ?? null) ? $body['raw_model_output'] : $response->body();
-            if (! $response->successful() || ! is_array($body) || ! is_array($body['extraction'] ?? null)) {
-                throw new \RuntimeException('Invalid extraction response');
+            if (! $response->successful()) {
+                $error = self::serviceFailureMessage($body);
+            } elseif (! is_array($body) || ! is_array($body['extraction'] ?? null)) {
+                $error = 'أعادت خدمة الاستخراج استجابة غير صالحة. أعد المحاولة.';
+            } else {
+                $candidate = Validator::make($body['extraction'], InvoiceContract::rules())->validate();
             }
-            $candidate = Validator::make($body['extraction'], InvoiceContract::rules())->validate();
+        } catch (ConnectionException) {
+            $error = 'تعذر الاتصال بخدمة Python أو انتهت المهلة. تحقق من تشغيلها ثم أعد المحاولة.';
+        } catch (ValidationException) {
+            $error = 'بيانات الاستخراج لا تطابق الحقول المطلوبة. أعد المحاولة.';
         } catch (Throwable) {
             // Do not log provider payloads or credentials.
             $error = 'تعذر الاستخراج. تحقق من الخدمة والإعدادات ثم أعد المحاولة.';
@@ -91,6 +100,32 @@ class ExtractInvoice implements ShouldQueue
             $invoice->load('items');
             $review->refreshCalculatedAmounts($invoice);
         });
+    }
+
+    private static function serviceFailureMessage(mixed $body): string
+    {
+        $reason = is_array($body) && is_array($body['errors'] ?? null) ? ($body['errors'][0] ?? null) : null;
+        if (! is_string($reason)) {
+            return 'فشلت خدمة الاستخراج. تحقق من تشغيلها ثم أعد المحاولة.';
+        }
+        if (preg_match('/^Provider HTTP ([4-5][0-9]{2})$/D', $reason, $matches)) {
+            return match ((int) $matches[1]) {
+                429 => 'بلغ Gemini حد الطلبات أو الحصة (429). تحقق من الحصة ثم أعد المحاولة لاحقاً.',
+                401, 403 => 'رفض Gemini صلاحية الوصول ('.$matches[1].'). تحقق من إعدادات الحساب.',
+                404 => 'نموذج Gemini المحدد غير متاح (404). تحقق من اسم النموذج.',
+                400, 413, 422 => 'رفض Gemini الصورة أو إعدادات الطلب ('.$matches[1].'). راجع الصورة والنموذج.',
+                408, 500, 502, 503, 504 => 'تعذر إكمال طلب Gemini مؤقتاً ('.$matches[1].'). أعد المحاولة لاحقاً.',
+                default => 'رفض Gemini طلب الاستخراج ('.$matches[1].'). تحقق من إعدادات الخدمة.',
+            };
+        }
+
+        return match ($reason) {
+            'Invalid structured output.' => 'لم يُرجع Gemini بيانات منظمة صالحة. أعد المحاولة أو أدخل الفاتورة يدوياً.',
+            'Image type or dimensions are not supported.', 'The uploaded file is not a readable invoice image.' => 'الصورة غير قابلة للقراءة أو غير مدعومة. أعد حفظها بصيغة JPG أو PNG.',
+            'Extraction failed: TimeoutError' => 'انتهت مهلة طلب Gemini. أعد المحاولة لاحقاً.',
+            'Provider request failed', 'Extraction failed: ClientError', 'Extraction failed: ServerError' => 'رفض Gemini طلب الاستخراج. تحقق من الحصة وإعدادات النموذج.',
+            default => 'فشلت خدمة الاستخراج. أعد المحاولة أو أدخل الفاتورة يدوياً.',
+        };
     }
 
     public function failed(?Throwable $exception): void

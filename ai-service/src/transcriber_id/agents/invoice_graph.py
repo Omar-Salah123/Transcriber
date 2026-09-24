@@ -6,6 +6,7 @@ from collections.abc import Callable
 from io import BytesIO
 from typing import TypedDict
 
+from google.genai.errors import APIError
 from langgraph.graph import END, START, StateGraph
 from PIL import Image, UnidentifiedImageError
 
@@ -55,6 +56,16 @@ def _extract_with_gemini(
                 "errors": ["Invalid structured output."],
                 "raw_model_output": error.raw_model_output,
             }
+        except APIError as error:
+            # The SDK exception text may include request details. Only pass a
+            # numeric HTTP status across the service boundary.
+            code = error.code
+            reason = (
+                f"Provider HTTP {code}"
+                if isinstance(code, int) and 400 <= code <= 599
+                else "Provider request failed"
+            )
+            return {"errors": [reason], "warnings": []}
         except Exception as error:  # Do not expose model internals to the browser.
             return {"errors": [f"Extraction failed: {type(error).__name__}"], "warnings": []}
         return {
