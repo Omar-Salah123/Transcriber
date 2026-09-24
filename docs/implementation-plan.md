@@ -65,6 +65,12 @@ available raw output. It rejects browser Origin headers. Credentials stay in Pyt
 - A single database worker processes jobs sequentially. Jobs dispatch after commit.
   HTTP timeout is 120 seconds, worker timeout 150 seconds, queue retry-after 180 seconds.
   Python provider timeout is 100 seconds with automatic retries disabled.
+- Vertex AI HTTP 429 responses are retained as separate private attempts and retried
+  up to three times with roughly 1, 2, and 4 minute delays plus positive jitter.
+  A shared file-cache cooldown defers other queued Gemini requests during each delay
+  without writing cooldown state to SQLite. The review queue shows the scheduled
+  retry time. Other failures, including timeouts, remain terminal and require a
+  manual retry; queue jobs expire after one day.
 - SQLite waits up to 10 seconds for a competing writer and starts application
   transactions in immediate mode, so a batch scheduling request does not upgrade
   a stale read transaction into a write. Transient scheduling locks are retried;

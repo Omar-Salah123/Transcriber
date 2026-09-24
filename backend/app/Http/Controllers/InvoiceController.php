@@ -22,8 +22,17 @@ class InvoiceController extends Controller
     public function index(): mixed
     {
         // Recover a worker killed mid-request. Tokens make any late result harmless.
-        Invoice::where('status', 'processing')->where('extraction_started_at', '<', now()->subMinutes(5))
-            ->update(['status' => 'failed', 'extraction_token' => null, 'extraction_error' => 'انتهت مهلة الاستخراج. أعد المحاولة.']);
+        Invoice::where('status', 'processing')->where(function ($query): void {
+            $query->where('extraction_started_at', '<', now()->subMinutes(5))
+                ->orWhere(function ($retry): void {
+                    $retry->whereNull('extraction_started_at')
+                        ->whereNotNull('extraction_retry_at')
+                        ->where('extraction_retry_at', '<', now()->subMinutes(5));
+                });
+        })->update([
+            'status' => 'failed', 'extraction_token' => null, 'extraction_retry_at' => null,
+            'extraction_error' => 'انتهت مهلة الاستخراج. أعد المحاولة.',
+        ]);
 
         return response()->json(Invoice::with('items')->orderBy('created_at')->get()->map(fn ($invoice) => $this->review->present($invoice)));
     }
@@ -112,7 +121,10 @@ class InvoiceController extends Controller
                 // Never allow a retry to replace a saved human review.
                 abort_unless(in_array($invoice->status, ['pending', 'failed']), 409, 'الاستخراج جارٍ أو تمت مراجعة الفاتورة');
                 $token = (string) Str::uuid();
-                $invoice->update(['status' => 'processing', 'extraction_token' => $token, 'extraction_started_at' => null, 'extraction_error' => null]);
+                $invoice->update([
+                    'status' => 'processing', 'extraction_token' => $token, 'extraction_started_at' => null,
+                    'extraction_retry_count' => 0, 'extraction_retry_at' => null, 'extraction_error' => null,
+                ]);
                 ExtractInvoice::dispatch($invoice->id, $token)->afterCommit();
 
                 return response()->json($this->review->present($invoice), 202);
