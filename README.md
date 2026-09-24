@@ -76,7 +76,9 @@ Do not expose this single-operator application to a network or the internet.
    and may incur API charges. Processing is sequential; the interface polls progress.
 3. Compare the image with every field and row. Preserve uncertain date text, Arabic
    text, and identifiers such as `000081`. For this shop's thousands shorthand,
-   compare the visible marks with separate interpreted price/amount/total fields.
+   price and item amount cells display the interpreted number when available;
+   compare it with the image. The invoice total keeps separate written and
+   interpreted fields.
    Interpreted values use ungrouped ASCII digits (for example `70000`); they are
    suggestions and require acknowledgment before confirmation. Add/remove rows
    and record review notes.
@@ -85,9 +87,9 @@ Do not expose this single-operator application to a network or the internet.
 5. Review and acknowledge every remaining warning, then confirm. Repeated
    confirmation cannot duplicate rows. Editing and saving confirmed data reopens review.
 6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
-   Interpretation columns follow the existing columns on each sheet. Valid
-   interpretations are numeric cells; invalid text stays literal and missing
-   interpretations remain blank.
+   The item sheet shows one price and one amount column, using interpreted values
+   when available. The invoice sheet retains a separate total interpretation.
+   Valid interpretations are numeric cells; invalid text stays literal.
 
 Unknowns remain blank. Written amounts stay separate from calculated amounts.
 The source transcription stays separate from any shorthand interpretation;
@@ -110,14 +112,17 @@ must be confirmed again before export.
   and extraction attempts are private database records, independent of reviewed values.
 - Failed extraction: select the invoice to see whether the image, provider request,
   model output, service connection, or timeout failed. A provider 429 can mean
-  temporary contention for Vertex AI shared capacity. A 429 is retried automatically
-  up to three times after increasing delays of about 1, 2, and 4 minutes; new
+  temporary contention for Vertex AI shared capacity. Transient failures (429, 408,
+  500/502/503/504, provider timeouts, and service connection failures) are retried
+  automatically up to three times after increasing delays of about 1, 2, and 4 minutes; new
   Gemini requests pause during each delay. This can incur up to three additional
   API calls for an invoice. Provider
   status, message, and JSON response details for new failures are saved in the private
   `extraction_attempts.provider_error` column, not returned to the browser or
   written to application logs. Earlier attempts cannot recover details that
-  were discarded. Other errors, including timeouts, are not retried automatically.
+  were discarded. Invalid output, image errors, and access/configuration errors
+  are not retried automatically.
+  Restart both Python and the queue worker after upgrading so they load the fix.
 - Database busy while scheduling: the affected invoice was not sent to Python.
   Wait for the current database writer to finish, then use the waiting queue
   button again. Keep one queue worker and do not run migrations during extraction.

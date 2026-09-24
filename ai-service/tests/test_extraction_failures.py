@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from google.genai.errors import ClientError
+from httpx import ReadTimeout
 from PIL import Image
 from transcriber_id.agents.invoice_graph import build_invoice_graph
 from transcriber_id.extraction.gemini import ExtractionFailure, extract_from_gemini
@@ -54,9 +55,10 @@ def test_graph_keeps_failure_output_and_error() -> None:
     assert result["errors"] == ["Invalid structured output."]
 
 
-def test_timeout_becomes_safe_error_and_next_attempt_can_run() -> None:
+@pytest.mark.parametrize("error_type", [TimeoutError, ReadTimeout])
+def test_timeout_becomes_safe_error_and_next_attempt_can_run(error_type) -> None:
     def fail(*_):
-        raise TimeoutError("sensitive provider internals")
+        raise error_type("sensitive provider internals")
 
     result = build_invoice_graph(fail).invoke(state())
     assert result["errors"] == ["Extraction failed: TimeoutError"]
@@ -162,3 +164,14 @@ def test_http_boundary_decodes_valid_image() -> None:
         )
         == original
     )
+
+
+def test_provider_request_has_timeout_below_laravel_and_no_hidden_retries() -> None:
+    client = MagicMock()
+    client.models.generate_content.side_effect = ReadTimeout("private details")
+    with pytest.raises(ReadTimeout):
+        extract_from_gemini(b"synthetic", "image/png", client=client, model_name="mock-model")
+    client.models.generate_content.assert_called_once()
+    options = client.models.generate_content.call_args.kwargs["config"].http_options
+    assert options.timeout == 100_000
+    assert options.retry_options.attempts == 1

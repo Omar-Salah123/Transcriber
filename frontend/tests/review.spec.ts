@@ -142,7 +142,7 @@ test("polling never overwrites unsaved review text", async ({ page }) => {
   );
 });
 
-test("review shows shorthand interpretations and clears a stale suggestion after a source edit", async ({
+test("review shows one interpreted value per amount and saves edits without losing source text", async ({
   page,
 }) => {
   const saved: InvoiceRecord = {
@@ -187,8 +187,10 @@ test("review shows shorthand interpretations and clears a stale suggestion after
   );
   await page.route("**/api/invoices/shorthand", async (route) => {
     const body = route.request().postDataJSON();
-    expect(body.items[0].unit_price_text).toBe("٧٥،~~~");
-    expect(body.items[0].unit_price_interpreted_text).toBeNull();
+    expect(body.items[0].unit_price_text).toBe("٧٠،~~~");
+    expect(body.items[0].unit_price_interpreted_text).toBe("75000");
+    expect(body.items[0].written_amount_text).toBe("١٤٠،~~~");
+    expect(body.items[0].written_amount_interpreted_text).toBe("150000");
     await route.fulfill({ json: { ...saved, ...body, version: 2 } });
   });
 
@@ -196,16 +198,16 @@ test("review shows shorthand interpretations and clears a stale suggestion after
   await expect(
     page.getByLabel("تفسير الإجمالي (أرقام 0-9 بلا فواصل)"),
   ).toHaveValue("140000");
-  await expect(page.getByLabel("تفسير سعر الوحدة (0-9) السطر 1")).toHaveValue(
-    "70000",
-  );
+  await expect(page.getByLabel("سعر الوحدة السطر 1")).toHaveValue("70000");
+  await expect(page.getByLabel("المبلغ السطر 1")).toHaveValue("140000");
+  await expect(page.locator(".items-table th")).toHaveCount(7);
   const notesWidth = await page
     .locator(".items-table th")
-    .nth(7)
+    .nth(5)
     .evaluate((cell) => cell.getBoundingClientRect().width);
   const deleteWidth = await page
     .locator(".items-table th")
-    .nth(8)
+    .nth(6)
     .evaluate((cell) => cell.getBoundingClientRect().width);
   expect(notesWidth).toBeGreaterThan(100);
   expect(deleteWidth).toBeGreaterThan(40);
@@ -215,10 +217,8 @@ test("review shows shorthand interpretations and clears a stale suggestion after
     path: "test-results/shorthand-table-end.png",
     fullPage: true,
   });
-  await page.getByLabel("سعر الوحدة السطر 1", { exact: true }).fill("٧٥،~~~");
-  await expect(page.getByLabel("تفسير سعر الوحدة (0-9) السطر 1")).toHaveValue(
-    "",
-  );
+  await page.getByLabel("سعر الوحدة السطر 1", { exact: true }).fill("75000");
+  await page.getByLabel("المبلغ السطر 1", { exact: true }).fill("150000");
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
   await expect(page.getByRole("status")).toContainText("حُفظت المسودة");
 });

@@ -8,6 +8,7 @@ from io import BytesIO
 from typing import TypedDict
 
 from google.genai.errors import APIError
+from httpx import TimeoutException
 from langgraph.graph import END, START, StateGraph
 from PIL import Image, UnidentifiedImageError
 
@@ -89,6 +90,8 @@ def _extract_with_gemini(
                 "warnings": [],
                 "provider_error": _provider_error_detail(error),
             }
+        except (TimeoutError, TimeoutException):
+            return {"errors": ["Extraction failed: TimeoutError"], "warnings": []}
         except Exception as error:  # Do not expose model internals to the browser.
             return {"errors": [f"Extraction failed: {type(error).__name__}"], "warnings": []}
         return {

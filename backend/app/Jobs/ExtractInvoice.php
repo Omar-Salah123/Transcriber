@@ -23,7 +23,7 @@ class ExtractInvoice implements ShouldQueue
 {
     use Queueable;
 
-    private const MAX_AUTOMATIC_429_RETRIES = 3;
+    private const MAX_AUTOMATIC_RETRIES = 3;
 
     public int $tries = 0;
 
@@ -67,6 +67,7 @@ class ExtractInvoice implements ShouldQueue
         $body = null;
         $candidate = null;
         $error = null;
+        $transientFailure = false;
         try {
             $url = config('invoices.ai_url');
             if (! in_array(parse_url($url, PHP_URL_HOST), ['127.0.0.1', 'localhost', '::1', '[::1]'])) {
@@ -93,6 +94,7 @@ class ExtractInvoice implements ShouldQueue
                 $candidate = Validator::make($body['extraction'], InvoiceContract::rules())->validate();
             }
         } catch (ConnectionException) {
+            $transientFailure = true;
             $error = 'تعذر الاتصال بخدمة Python أو انتهت المهلة. تحقق من تشغيلها ثم أعد المحاولة.';
         } catch (ValidationException) {
             $error = 'بيانات الاستخراج لا تطابق الحقول المطلوبة. أعد المحاولة.';
@@ -100,7 +102,7 @@ class ExtractInvoice implements ShouldQueue
             // Do not log provider payloads or credentials.
             $error = 'تعذر الاستخراج. تحقق من الخدمة والإعدادات ثم أعد المحاولة.';
         }
-        DB::transaction(function () use ($review, $raw, $providerError, $candidate, $error, $body): void {
+        DB::transaction(function () use ($review, $raw, $providerError, $candidate, $error, $body, $transientFailure): void {
             DB::table('extraction_attempts')->insertOrIgnore([
                 'invoice_id' => $this->invoiceId, 'token' => $this->token,
                 'raw_model_output' => $raw, 'extraction' => $candidate === null ? null : json_encode($candidate, JSON_UNESCAPED_UNICODE),
@@ -115,7 +117,10 @@ class ExtractInvoice implements ShouldQueue
             $invoice->version++;
             if ($error !== null) {
                 $providerStatus = self::providerStatus($body);
-                if ($providerStatus === 429 && $invoice->extraction_retry_count < self::MAX_AUTOMATIC_429_RETRIES) {
+                $transientFailure = $transientFailure
+                    || in_array($providerStatus, [408, 429, 500, 502, 503, 504], true)
+                    || (is_array($body) && ($body['errors'][0] ?? null) === 'Extraction failed: TimeoutError');
+                if ($transientFailure && $invoice->extraction_retry_count < self::MAX_AUTOMATIC_RETRIES) {
                     $delay = self::retryDelay($invoice->extraction_retry_count);
                     $retryAt = now()->addSeconds($delay);
                     $nextToken = (string) Str::uuid();
@@ -125,7 +130,7 @@ class ExtractInvoice implements ShouldQueue
                     $invoice->extraction_started_at = null;
                     $invoice->extraction_retry_count++;
                     $invoice->extraction_retry_at = $retryAt;
-                    $invoice->extraction_error = 'قيّد Gemini الطلب مؤقتاً (429). ستتم إعادة المحاولة تلقائياً بعد مهلة قصيرة.';
+                    $invoice->extraction_error = $error.' ستتم إعادة المحاولة تلقائياً بعد مهلة قصيرة.';
                     $invoice->save();
 
                     // A file cache shares this pause across local workers without writing to SQLite.
