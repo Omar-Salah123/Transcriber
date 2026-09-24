@@ -19,10 +19,8 @@ const headerFields = [
 ] as const;
 const itemFields = [
   ["description", "الوصف"],
-  ["quantity_text", "الكمية"],
-  ["unit_price_text", "سعر الوحدة"],
+  ["quantity_text", "Quantity"],
   ["unit_price_interpreted_text", "تفسير سعر الوحدة (0-9)"],
-  ["written_amount_text", "المبلغ المكتوب"],
   ["written_amount_interpreted_text", "تفسير المبلغ (0-9)"],
 ] as const;
 
@@ -216,6 +214,35 @@ export default function Home() {
               طباعة PDF
             </button>
           )}
+          <button
+            className="secondary-button"
+            disabled={!records.length || busy || dirty}
+            style={{ padding: "12px 17px", minHeight: "44px" }}
+            onClick={() =>
+              void run(async () => {
+                if (
+                  !window.confirm(
+                    `هل أنت متأكد من حذف جميع الفواتير (${records.length})؟ لا يمكن التراجع عن هذا الإجراء.`,
+                  )
+                )
+                  return;
+                const result = await api<{ deleted: number }>("invoices", {
+                  method: "DELETE",
+                });
+                generation.current++;
+                activeRef.current = null;
+                localStorage.removeItem("activeInvoiceId");
+                dirtyRef.current = false;
+                setDirty(false);
+                setDraft(null);
+                setRecords([]);
+                setAcknowledged(false);
+                setNotice(`تم حذف ${result.deleted} فاتورة.`);
+              })
+            }
+          >
+            مسح الكل
+          </button>
           <button
             className="export-button"
             disabled={!confirmed || busy || dirty}
@@ -485,7 +512,6 @@ export default function Home() {
                           {itemFields.map(([field, label]) => (
                             <th key={field}>{label}</th>
                           ))}
-                          <th>المحسوب المحفوظ</th>
                           <th>ملاحظات السطر</th>
                           <th>حذف</th>
                         </tr>
@@ -531,11 +557,6 @@ export default function Home() {
                                 />
                               </td>
                             ))}
-                            <td>
-                              {dirty
-                                ? "احفظ للحساب"
-                                : (item.calculated_amount ?? "—")}
-                            </td>
                             <td>
                               <input
                                 aria-label={`ملاحظات السطر ${index + 1}`}
@@ -598,14 +619,6 @@ export default function Home() {
                   >
                     ＋ إضافة سطر
                   </button>
-                </section>
-                <section className="calculation-card">
-                  <span>الإجمالي المحسوب</span>
-                  <strong>
-                    {dirty
-                      ? "احفظ لتحديث الحساب"
-                      : (draft.calculated_total ?? "غير مكتمل")}
-                  </strong>
                 </section>
                 <section className="form-section">
                   <label>

@@ -115,6 +115,25 @@ class InvoiceController extends Controller
         });
     }
 
+    public function destroyAll(): mixed
+    {
+        return DB::transaction(function () {
+            abort_if(
+                Invoice::where('status', 'processing')->exists(),
+                409,
+                'انتظر انتهاء الاستخراج الجاري قبل حذف الفواتير',
+            );
+
+            $invoices = Invoice::all();
+            foreach ($invoices as $invoice) {
+                Storage::disk('local')->delete($invoice->image_path);
+            }
+            Invoice::query()->delete();
+
+            return response()->json(['deleted' => $invoices->count()]);
+        });
+    }
+
     public function export(InvoiceWorkbook $workbook): mixed
     {
         $invoices = DB::transaction(fn () => Invoice::with('items')->where('status', 'confirmed')->orderBy('created_at')->get());

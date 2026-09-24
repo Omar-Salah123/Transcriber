@@ -18,24 +18,23 @@ class InvoiceWorkbook
         $book = new Spreadsheet;
         $headers = $book->getActiveSheet()->setTitle('الفواتير');
         $items = $book->createSheet()->setTitle('الأصناف');
-        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تحذيرات أقرها المراجع', 'تفسير الإجمالي المكتوب']);
-        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ المكتوب', 'المبلغ المحسوب', 'ملاحظات', 'حقول غير مؤكدة', 'تفسير سعر الوحدة', 'تفسير المبلغ المكتوب']);
+        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تحذيرات أقرها المراجع']);
+        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ المكتوب', 'المبلغ المحسوب', 'ملاحظات']);
         $invoiceRow = 2;
         $itemRow = 2;
         foreach ($invoices as $invoice) {
             if ($invoice->status !== 'confirmed') {
                 continue;
             }
-            $this->row($headers, $invoiceRow++, [$invoice->id, $invoice->invoice_number, $invoice->date_text, $invoice->seller, $invoice->customer,
+            $this->row($headers, $invoiceRow++, [$invoice->id, $this->westernDigits($invoice->invoice_number), $this->westernDigits($invoice->date_text), $this->westernDigits($invoice->seller), $this->westernDigits($invoice->customer),
                 $this->numberOrText($invoice->written_total_text), $this->numeric($invoice->calculated_total),
-                $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', $invoice->source_filename, $invoice->review_notes,
-                implode('؛ ', array_column($this->review->warnings($invoice), 'message')), $this->numberOrText($invoice->written_total_interpreted_text)]);
+                $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', $this->westernDigits($invoice->source_filename), $this->westernDigits($invoice->review_notes),
+                implode('؛ ', array_column($this->review->warnings($invoice), 'message'))]);
             foreach ($invoice->items as $item) {
-                $this->row($items, $itemRow++, [$invoice->id, $item->row_order, $item->description,
+                $this->row($items, $itemRow++, [$invoice->id, $item->row_order, $this->westernDigits($item->description),
                     $this->numberOrText($item->quantity_text), $this->numberOrText($item->unit_price_text),
                     $this->numberOrText($item->written_amount_text), $this->numeric($item->calculated_amount),
-                    $item->review_note, implode('؛ ', $item->unresolved_fields ?? []),
-                    $this->numberOrText($item->unit_price_interpreted_text), $this->numberOrText($item->written_amount_interpreted_text)]);
+                    $this->westernDigits($item->review_note)]);
             }
         }
         foreach ($book->getAllSheets() as $sheet) {
@@ -61,7 +60,19 @@ class InvoiceWorkbook
     {
         $number = $this->review->decimal($value);
 
-        return $number === null ? $value : (float) (string) $number;
+        return $number === null ? $this->westernDigits($value) : (float) (string) $number;
+    }
+
+    private function westernDigits(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return strtr($value, array_combine(
+            preg_split('//u', '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', -1, PREG_SPLIT_NO_EMPTY),
+            str_split('01234567890123456789')
+        ));
     }
 
     private function row(Worksheet $sheet, int $row, array $values): void

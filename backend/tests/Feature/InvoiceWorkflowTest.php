@@ -247,4 +247,33 @@ class InvoiceWorkflowTest extends TestCase
     {
         $this->withHeader('Origin', 'https://untrusted.example')->postJson('/api/invoices')->assertForbidden();
     }
+
+    public function test_clear_all_deletes_every_invoice_and_stored_image(): void
+    {
+        Queue::fake();
+        $this->upload();
+        $this->postJson('/api/invoices', ['image' => UploadedFile::fake()->image('other.jpg')])->assertCreated();
+        $this->assertDatabaseCount('invoices', 2);
+
+        $paths = Invoice::pluck('image_path')->all();
+
+        $response = $this->deleteJson('/api/invoices')->assertOk();
+        $this->assertSame(2, $response->json('deleted'));
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertDatabaseCount('invoice_items', 0);
+
+        foreach ($paths as $path) {
+            Storage::disk('local')->assertMissing($path);
+        }
+    }
+
+    public function test_clear_all_is_blocked_while_extraction_is_processing(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $this->postJson('/api/invoices/'.$invoice['id'].'/extract')->assertAccepted();
+
+        $this->deleteJson('/api/invoices')->assertConflict();
+        $this->assertDatabaseCount('invoices', 1);
+    }
 }
