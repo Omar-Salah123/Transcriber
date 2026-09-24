@@ -7,6 +7,11 @@ React UI, and workbook generation separate.
 
 ## Dependencies and checks
 
+Docker runtime setup and update/backup instructions are in [docs/docker.md](docs/docker.md).
+For changes affecting images, startup, storage, or networking, run
+`docker compose config --quiet` and `python docker/smoke.py` with port 3000 free.
+The smoke test uses disposable synthetic data and never calls Gemini.
+
 Use Python 3.12 and `uv`. The root is a non-package workspace; `ai-service` owns
 the installable `transcriber_id` module. Add runtime dependencies with
 `uv add --package ai-service PACKAGE`; regenerate `uv.lock`, never hand-edit it.

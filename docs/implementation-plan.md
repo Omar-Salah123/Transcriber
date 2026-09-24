@@ -6,6 +6,11 @@ availability and the 10-invoice accuracy pilot remain operator acceptance work.
 
 ## Ownership and data
 
+The optional [Docker runtime](docker.md) packages the same architecture. Shared
+container networking preserves loopback-only API/service checks, and a named
+volume holds SQLite, private images, shared cache, and a stable application key.
+The startup scripts stop the previous stack before backup/migration initialization.
+
 - React renders the Arabic RTL review queue and sends explicit saves. Browser state
   is an unsaved draft, never the authority for confirmation or export.
 - Laravel owns private JPEG/PNG files, SHA-256 deduplication, SQLite invoice/item
