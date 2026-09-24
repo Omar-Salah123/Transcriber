@@ -34,6 +34,8 @@ class Invoice extends Model
         'extraction_error',
         'extraction_token',
         'extraction_started_at',
+        'extraction_retry_count',
+        'extraction_retry_at',
         'version',
     ];
 
@@ -45,6 +47,8 @@ class Invoice extends Model
             'unresolved_fields' => 'array',
             'original_extraction' => 'array',
             'extraction_started_at' => 'datetime',
+            'extraction_retry_count' => 'integer',
+            'extraction_retry_at' => 'datetime',
             'version' => 'integer',
         ];
     }

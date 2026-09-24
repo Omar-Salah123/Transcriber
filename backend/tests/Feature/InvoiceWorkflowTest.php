@@ -9,10 +9,12 @@ use App\Services\InvoiceWorkbook;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use PDOException;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
@@ -26,6 +28,7 @@ class InvoiceWorkflowTest extends TestCase
         parent::setUp();
         Storage::fake('local');
         Http::preventStrayRequests();
+        Cache::store('file')->flush();
         $this->withHeader('X-Invoice-Client', 'local-review');
     }
 
@@ -198,6 +201,22 @@ class InvoiceWorkflowTest extends TestCase
         $this->postJson($url.'/extract')->assertConflict();
     }
 
+    public function test_sqlite_lock_during_scheduling_returns_a_safe_retry_message(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $error = new PDOException('SQLSTATE[HY000]: General error: 5 database is locked while updating private invoice');
+        $error->errorInfo = ['HY000', 5, 'database is locked'];
+        DB::shouldReceive('transaction')->once()->andThrow($error);
+
+        $response = $this->postJson('/api/invoices/'.$invoice['id'].'/extract')->assertStatus(503);
+
+        $this->assertStringContainsString('قاعدة البيانات مشغولة', $response->json('message'));
+        $this->assertStringNotContainsString('private invoice', $response->getContent());
+        Queue::assertNothingPushed();
+        $this->assertSame('pending', Invoice::findOrFail($invoice['id'])->status);
+    }
+
     public function test_extraction_uses_western_digits_without_changing_original_model_data(): void
     {
         Queue::fake();
@@ -306,6 +325,58 @@ class InvoiceWorkflowTest extends TestCase
         $this->assertSame('malformed response', DB::table('extraction_attempts')->first()->raw_model_output);
         $this->postJson($url.'/extract')->assertAccepted();
         $this->assertDatabaseCount('extraction_attempts', 1);
+    }
+
+    public function test_provider_rate_limit_is_shown_without_exposing_service_details(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $url = '/api/invoices/'.$invoice['id'];
+        $this->postJson($url.'/extract')->assertAccepted();
+        $model = Invoice::findOrFail($invoice['id']);
+        $model->update(['extraction_retry_count' => 3]);
+        Http::fake(['*' => Http::response([
+            'errors' => ['Provider HTTP 429'],
+            'raw_model_output' => null,
+            'provider_error' => [
+                'http_status' => 429,
+                'status' => 'RESOURCE_EXHAUSTED',
+                'message' => 'private provider response',
+                'response' => ['error' => ['details' => [['retryDelay' => '5s']]]],
+            ],
+        ], 422)]);
+
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+
+        $response = $this->getJson($url)->assertOk()->assertJsonPath('status', 'failed');
+        $this->assertStringContainsString('429', $response->json('extraction_error'));
+        $this->assertStringNotContainsString('private provider response', $response->getContent());
+        $this->assertSame('failed', $model->fresh()->status);
+        $attempt = DB::table('extraction_attempts')->first();
+        $this->assertNull($attempt->raw_model_output);
+        $this->assertSame('private provider response', json_decode($attempt->provider_error, true)['message']);
+        $this->assertSame('5s', json_decode($attempt->provider_error, true)['response']['error']['details'][0]['retryDelay']);
+        $this->postJson($url.'/extract')->assertAccepted();
+    }
+
+    public function test_invalid_model_output_has_a_specific_safe_failure_message(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $url = '/api/invoices/'.$invoice['id'];
+        $this->postJson($url.'/extract')->assertAccepted();
+        $model = Invoice::findOrFail($invoice['id']);
+        Http::fake(['*' => Http::response([
+            'errors' => ['Invalid structured output.'],
+            'raw_model_output' => 'private model output',
+        ], 422)]);
+
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+
+        $response = $this->getJson($url)->assertOk()->assertJsonPath('status', 'failed');
+        $this->assertStringContainsString('بيانات منظمة', $response->json('extraction_error'));
+        $this->assertStringNotContainsString('private model output', $response->getContent());
+        $this->assertSame('private model output', DB::table('extraction_attempts')->first()->raw_model_output);
     }
 
     public function test_timeout_and_stale_worker_results_do_not_overwrite_review(): void

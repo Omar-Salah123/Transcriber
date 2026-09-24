@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from io import BytesIO
 from typing import TypedDict
 
+from google.genai.errors import APIError
 from langgraph.graph import END, START, StateGraph
 from PIL import Image, UnidentifiedImageError
 
@@ -22,6 +24,7 @@ class InvoiceGraphState(TypedDict):
     source_filename: str
     extraction: ExtractedInvoice | None
     raw_model_output: str | None
+    provider_error: dict[str, object] | None
     warnings: list[str]
     errors: list[str]
 
@@ -44,6 +47,23 @@ def _after_validation(state: InvoiceGraphState) -> str:
     return "stop" if state["errors"] else "extract"
 
 
+def _provider_error_detail(error: APIError) -> dict[str, object]:
+    """Retain the provider response privately without serializing the HTTP request."""
+
+    response = error.details
+    try:
+        json.dumps(response)
+    except (TypeError, ValueError):
+        response = None
+
+    return {
+        "http_status": error.code if isinstance(error.code, int) else None,
+        "status": error.status if isinstance(error.status, str) else None,
+        "message": error.message if isinstance(error.message, str) else None,
+        "response": response,
+    }
+
+
 def _extract_with_gemini(
     extractor: ModelExtractor,
 ) -> Callable[[InvoiceGraphState], dict[str, object]]:
@@ -54,6 +74,20 @@ def _extract_with_gemini(
             return {
                 "errors": ["Invalid structured output."],
                 "raw_model_output": error.raw_model_output,
+            }
+        except APIError as error:
+            # Keep the public error concise. The private service response carries
+            # the provider diagnostic separately for database persistence.
+            code = error.code
+            reason = (
+                f"Provider HTTP {code}"
+                if isinstance(code, int) and 400 <= code <= 599
+                else "Provider request failed"
+            )
+            return {
+                "errors": [reason],
+                "warnings": [],
+                "provider_error": _provider_error_detail(error),
             }
         except Exception as error:  # Do not expose model internals to the browser.
             return {"errors": [f"Extraction failed: {type(error).__name__}"], "warnings": []}
@@ -112,6 +146,7 @@ def extract_invoice_image(
             "source_filename": source_filename,
             "extraction": None,
             "raw_model_output": None,
+            "provider_error": None,
             "warnings": [],
             "errors": [],
         }

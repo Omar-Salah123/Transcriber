@@ -29,6 +29,7 @@ export type InvoiceRecord = {
   review_acknowledged: boolean;
   unresolved_fields: string[];
   extraction_error: string | null;
+  extraction_retry_at?: string | null;
   image_url: string;
   items: InvoiceItem[];
   warnings: { field: string; message: string }[];

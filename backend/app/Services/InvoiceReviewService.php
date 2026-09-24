@@ -133,6 +133,8 @@ class InvoiceReviewService
         $invoice->loadMissing('items');
         $result = $invoice->toArray();
         unset($result['image_path'], $result['raw_model_output'], $result['original_extraction'], $result['extraction_token']);
+        unset($result['extraction_retry_count']);
+        $result['extraction_retry_at'] = $invoice->extraction_retry_at?->toISOString();
         $result['warnings'] = $this->warnings($invoice);
         $result['image_url'] = '/api/invoices/'.$invoice->id.'/image';
 

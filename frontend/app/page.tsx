@@ -26,6 +26,17 @@ const itemFields = [
   ["written_amount_interpreted_text", "تفسير المبلغ (0-9)"],
 ] as const;
 
+function retryTime(value?: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("ar-SA", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
 export default function Home() {
   const [records, setRecords] = useState<InvoiceRecord[]>([]);
   const [draft, setDraft] = useState<InvoiceRecord | null>(null);
@@ -372,6 +383,12 @@ export default function Home() {
                       {record.invoice_number || "بدون رقم"} ·{" "}
                       {statusLabel[record.status]}
                     </small>
+                    {record.extraction_retry_at && (
+                      <small>
+                        إعادة المحاولة نحو{" "}
+                        {retryTime(record.extraction_retry_at)}
+                      </small>
+                    )}
                   </span>
                 </button>
               ))}
@@ -461,7 +478,9 @@ export default function Home() {
             )}
             {draft.status === "processing" && (
               <p className="notice">
-                بانتظار العامل أو جارٍ الاستخراج. ستظهر النتيجة تلقائياً.
+                {draft.extraction_retry_at
+                  ? `أوقف Gemini الطلب مؤقتاً. ستتم إعادة المحاولة نحو الساعة ${retryTime(draft.extraction_retry_at)}.`
+                  : "بانتظار العامل أو جارٍ الاستخراج. ستظهر النتيجة تلقائياً."}
               </p>
             )}
             {draft.status === "confirmed" && (

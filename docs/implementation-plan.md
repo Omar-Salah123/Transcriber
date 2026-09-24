@@ -20,7 +20,9 @@ availability and the 10-invoice accuracy pilot remain operator acceptance work.
   unsupported precision produce warnings.
 - `original_extraction` and `raw_model_output` are independent of edits;
   `extraction_attempts` retains successful/failed responses. Private outputs are
-  omitted from browser resources. No provider response is written to application logs.
+  omitted from browser resources. New provider failures retain the SDK status,
+  message, and response details in `extraction_attempts.provider_error`. No provider
+  response is written to application logs.
 
 ## Interfaces
 
@@ -63,6 +65,16 @@ available raw output. It rejects browser Origin headers. Credentials stay in Pyt
 - A single database worker processes jobs sequentially. Jobs dispatch after commit.
   HTTP timeout is 120 seconds, worker timeout 150 seconds, queue retry-after 180 seconds.
   Python provider timeout is 100 seconds with automatic retries disabled.
+- Vertex AI HTTP 429 responses are retained as separate private attempts and retried
+  up to three times with roughly 1, 2, and 4 minute delays plus positive jitter.
+  A shared file-cache cooldown defers other queued Gemini requests during each delay
+  without writing cooldown state to SQLite. The review queue shows the scheduled
+  retry time. Other failures, including timeouts, remain terminal and require a
+  manual retry; queue jobs expire after one day.
+- SQLite waits up to 10 seconds for a competing writer and starts application
+  transactions in immediate mode, so a batch scheduling request does not upgrade
+  a stale read transaction into a write. Transient scheduling locks are retried;
+  a persistent lock returns a safe error without queueing that invoice.
 - Each extraction has a token and atomic start claim. Duplicate delivery is a no-op;
   stale results cannot replace reviews. After five minutes, started but interrupted
   work becomes failed when listing invoices. Queued work has no start time yet.

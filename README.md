@@ -55,7 +55,7 @@ php -d upload_max_filesize=11M -d post_max_size=12M -S 127.0.0.1:8000 ../vendor/
 ```powershell
 # 3. Exactly one extraction worker
 cd backend
-php artisan queue:work --tries=1 --timeout=150 --sleep=1
+php artisan queue:work --tries=0 --timeout=150 --sleep=1
 ```
 
 ```powershell
@@ -108,8 +108,19 @@ must be confirmed again before export.
 - SQLite: `backend/database/database.sqlite`; images: `backend/storage/app/private`.
   Back up both while all application processes are stopped. Original model messages
   and extraction attempts are private database records, independent of reviewed values.
-- Failed extraction: check Python is running, its key/model configuration, and the
-  queue worker. Retry from the interface. No automatic paid retry is performed.
+- Failed extraction: select the invoice to see whether the image, provider request,
+  model output, service connection, or timeout failed. A provider 429 can mean
+  temporary contention for Vertex AI shared capacity. A 429 is retried automatically
+  up to three times after increasing delays of about 1, 2, and 4 minutes; new
+  Gemini requests pause during each delay. This can incur up to three additional
+  API calls for an invoice. Provider
+  status, message, and JSON response details for new failures are saved in the private
+  `extraction_attempts.provider_error` column, not returned to the browser or
+  written to application logs. Earlier attempts cannot recover details that
+  were discarded. Other errors, including timeouts, are not retried automatically.
+- Database busy while scheduling: the affected invoice was not sent to Python.
+  Wait for the current database writer to finish, then use the waiting queue
+  button again. Keep one queue worker and do not run migrations during extraction.
 - Waiting indefinitely: start the worker. Requests interrupted after they start
   become retryable after five minutes when the queue is refreshed.
 - Conflict while saving: another tab changed the invoice. Select its queue entry
