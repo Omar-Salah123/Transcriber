@@ -76,7 +76,9 @@ Do not expose this single-operator application to a network or the internet.
    and may incur API charges. Processing is sequential; the interface polls progress.
 3. Compare the image with every field and row. Preserve uncertain date text, Arabic
    text, and identifiers such as `000081`. For this shop's thousands shorthand,
-   compare the visible marks with separate interpreted price/amount/total fields.
+   price and item amount cells display the interpreted number when available;
+   compare it with the image. The invoice total keeps separate written and
+   interpreted fields.
    Interpreted values use ungrouped ASCII digits (for example `70000`); they are
    suggestions and require acknowledgment before confirmation. Add/remove rows
    and record review notes.
@@ -85,9 +87,9 @@ Do not expose this single-operator application to a network or the internet.
 5. Review and acknowledge every remaining warning, then confirm. Repeated
    confirmation cannot duplicate rows. Editing and saving confirmed data reopens review.
 6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
-   Interpretation columns follow the existing columns on each sheet. Valid
-   interpretations are numeric cells; invalid text stays literal and missing
-   interpretations remain blank.
+   The item sheet shows one price and one amount column, using interpreted values
+   when available. The invoice sheet retains a separate total interpretation.
+   Valid interpretations are numeric cells; invalid text stays literal.
 
 Unknowns remain blank. Written amounts stay separate from calculated amounts.
 The source transcription stays separate from any shorthand interpretation;

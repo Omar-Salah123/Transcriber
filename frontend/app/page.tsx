@@ -21,10 +21,40 @@ const itemFields = [
   ["description", "الوصف"],
   ["quantity_text", "الكمية"],
   ["unit_price_text", "سعر الوحدة"],
-  ["unit_price_interpreted_text", "تفسير سعر الوحدة (0-9)"],
-  ["written_amount_text", "المبلغ المكتوب"],
-  ["written_amount_interpreted_text", "تفسير المبلغ (0-9)"],
+  ["written_amount_text", "المبلغ"],
 ] as const;
+
+function interpretedField(field: (typeof itemFields)[number][0]) {
+  if (field === "unit_price_text") return "unit_price_interpreted_text";
+  if (field === "written_amount_text") return "written_amount_interpreted_text";
+  return null;
+}
+
+function itemValue(item: InvoiceItem, field: (typeof itemFields)[number][0]) {
+  const interpretation = interpretedField(field);
+  return (interpretation ? item[interpretation] : null) ?? item[field] ?? "";
+}
+
+function editItemValue(
+  item: InvoiceItem,
+  field: (typeof itemFields)[number][0],
+  value: string,
+): InvoiceItem {
+  const interpretation = interpretedField(field);
+  const next = {
+    ...item,
+    unresolved_fields: item.unresolved_fields.filter(
+      (name) => name !== field && name !== interpretation,
+    ),
+  };
+  if (interpretation && value === "") {
+    return { ...next, [field]: null, [interpretation]: null };
+  }
+  if (interpretation && item[interpretation] != null) {
+    return { ...next, [interpretation]: value };
+  }
+  return { ...next, [field]: value };
+}
 
 function retryTime(value?: string | null): string | null {
   if (!value) return null;
@@ -493,9 +523,9 @@ export default function Home() {
               <div className="review-scroll">
                 <section className="form-section">
                   <p className="notice">
-                    حقول التفسير تقترح قيمة رقمية لاختصار الآلاف في خط البائع.
-                    قارنها بالصورة الأصلية قبل التأكيد؛ النص المكتوب محفوظ
-                    منفصلاً.
+                    تُعرض القيمة الرقمية المفسّرة لسعر الوحدة والمبلغ عند
+                    توفرها. قارنها بالصورة الأصلية قبل التأكيد. يُحفظ النص
+                    الأصلي منفصلاً.
                   </p>
                   <div className="form-grid">
                     {headerFields.map(([field, label]) => (
@@ -545,33 +575,17 @@ export default function Home() {
                               <td key={field}>
                                 <input
                                   aria-label={`${label} السطر ${index + 1}`}
-                                  value={item[field] ?? ""}
+                                  value={itemValue(item, field)}
                                   onChange={(event) =>
                                     edit((current) => ({
                                       ...current,
                                       items: current.items.map((row, i) =>
                                         i === index
-                                          ? {
-                                              ...row,
-                                              [field]: event.target.value,
-                                              ...(field === "unit_price_text"
-                                                ? {
-                                                    unit_price_interpreted_text:
-                                                      null,
-                                                  }
-                                                : {}),
-                                              ...(field ===
-                                              "written_amount_text"
-                                                ? {
-                                                    written_amount_interpreted_text:
-                                                      null,
-                                                  }
-                                                : {}),
-                                              unresolved_fields:
-                                                row.unresolved_fields.filter(
-                                                  (name) => name !== field,
-                                                ),
-                                            }
+                                          ? editItemValue(
+                                              row,
+                                              field,
+                                              event.target.value,
+                                            )
                                           : row,
                                       ),
                                     }))

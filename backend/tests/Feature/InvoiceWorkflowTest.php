@@ -283,16 +283,15 @@ class InvoiceWorkflowTest extends TestCase
             app(InvoiceWorkbook::class)->write(Invoice::with('items')->get(), $path);
             $book = IOFactory::load($path);
             $this->assertSame('140،~~~', $book->getSheet(0)->getCell('F2')->getValue());
-            $this->assertSame('تفسير الإجمالي المكتوب', $book->getSheet(0)->getCell('L1')->getValue());
-            $this->assertSame(140000.0, $book->getSheet(0)->getCell('L2')->getValue());
-            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(0)->getCell('L2')->getDataType());
-            $this->assertSame('70،~~~', $book->getSheet(1)->getCell('E2')->getValue());
-            $this->assertSame('تفسير سعر الوحدة', $book->getSheet(1)->getCell('I1')->getValue());
-            $this->assertSame(70000.0, $book->getSheet(1)->getCell('I2')->getValue());
-            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('I2')->getDataType());
-            $this->assertSame('تفسير المبلغ المكتوب', $book->getSheet(1)->getCell('J1')->getValue());
-            $this->assertSame(140000.0, $book->getSheet(1)->getCell('J2')->getValue());
-            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('J2')->getDataType());
+            $this->assertSame('K', $book->getSheet(0)->getHighestColumn());
+            $this->assertSame('تفسير الإجمالي المكتوب', $book->getSheet(0)->getCell('K1')->getValue());
+            $this->assertSame(140000.0, $book->getSheet(0)->getCell('K2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(0)->getCell('K2')->getDataType());
+            $this->assertSame('H', $book->getSheet(1)->getHighestColumn());
+            $this->assertSame(70000.0, $book->getSheet(1)->getCell('E2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('E2')->getDataType());
+            $this->assertSame(140000.0, $book->getSheet(1)->getCell('F2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('F2')->getDataType());
             $book->disconnectWorksheets();
         } finally {
             unlink($path);
@@ -421,12 +420,13 @@ class InvoiceWorkflowTest extends TestCase
             $this->assertSame('000081', $headers->getCell('B2')->getValue());
             $this->assertSame(DataType::TYPE_STRING, $headers->getCell('B2')->getDataType());
             $this->assertNull($headers->getCell('E2')->getValue());
-            $this->assertSame('=SUM(1,2)', $headers->getCell('L2')->getValue());
-            $this->assertSame(DataType::TYPE_STRING, $headers->getCell('L2')->getDataType());
-            $this->assertSame(DataType::TYPE_NUMERIC, $items->getCell('E2')->getDataType());
-            $this->assertSame('=SUM(A1:A2)', $items->getCell('I2')->getValue());
-            $this->assertSame(DataType::TYPE_STRING, $items->getCell('I2')->getDataType());
-            $this->assertNull($items->getCell('J2')->getValue());
+            $this->assertSame('K', $headers->getHighestColumn());
+            $this->assertSame('=SUM(1,2)', $headers->getCell('K2')->getValue());
+            $this->assertSame(DataType::TYPE_STRING, $headers->getCell('K2')->getDataType());
+            $this->assertSame('H', $items->getHighestColumn());
+            $this->assertSame('=SUM(A1:A2)', $items->getCell('E2')->getValue());
+            $this->assertSame(DataType::TYPE_STRING, $items->getCell('E2')->getDataType());
+            $this->assertSame(DataType::TYPE_NUMERIC, $items->getCell('F2')->getDataType());
             $this->assertSame('=SUM(A1:A2)', $items->getCell('C2')->getValue());
             $this->assertSame(DataType::TYPE_STRING, $items->getCell('C2')->getDataType());
             foreach ($book->getAllSheets() as $sheet) {
