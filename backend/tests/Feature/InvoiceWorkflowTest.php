@@ -9,6 +9,7 @@ use App\Services\InvoiceWorkbook;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -27,6 +28,7 @@ class InvoiceWorkflowTest extends TestCase
         parent::setUp();
         Storage::fake('local');
         Http::preventStrayRequests();
+        Cache::store('file')->flush();
         $this->withHeader('X-Invoice-Client', 'local-review');
     }
 
@@ -332,6 +334,7 @@ class InvoiceWorkflowTest extends TestCase
         $url = '/api/invoices/'.$invoice['id'];
         $this->postJson($url.'/extract')->assertAccepted();
         $model = Invoice::findOrFail($invoice['id']);
+        $model->update(['extraction_retry_count' => 3]);
         Http::fake(['*' => Http::response([
             'errors' => ['Provider HTTP 429'],
             'raw_model_output' => null,
