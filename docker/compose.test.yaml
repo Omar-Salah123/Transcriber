@@ -1,0 +1,13 @@
+# Synthetic extraction only; invoked with a unique project name by smoke.py.
+services:
+  backend:
+    environment:
+      AI_SERVICE_URL: http://127.0.0.1:8101
+  worker:
+    environment:
+      AI_SERVICE_URL: http://127.0.0.1:8101
+  ai:
+    env_file: !reset []
+    command: [/app/.venv/bin/python, /app/ai-service/tests/fake_service.py]
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import socket; socket.create_connection(('127.0.0.1', 8101), 2).close()"]

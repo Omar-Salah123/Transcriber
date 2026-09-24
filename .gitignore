@@ -5,6 +5,9 @@
 .streamlit/secrets.toml
 *.pem
 *.key
+docker/ai.env
+compose.override.yaml
+*.tar.gz
 
 # Python environments, build output, and tooling caches
 .venv/

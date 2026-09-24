@@ -12,6 +12,12 @@ Live handwriting accuracy has **not** been evaluated. See [the pilot](docs/pilot
 
 ## Install
 
+**Recommended for a consistent teammate setup:** use [Docker Compose](docs/docker.md).
+After configuring `docker/ai.env`, run `./docker/start.ps1` on Windows or
+`sh docker/start.sh` on Linux/macOS. Use the same script after pulling updates;
+it preserves data and backs it up before migrations. The instructions below are
+the alternative native development setup.
+
 Requirements: Python 3.12, uv 0.12.17 or newer, Node.js 22+, PHP 8.4 with
 PDO SQLite, fileinfo, GD, mbstring, XML, and zip, and Composer. The current Composer
 lock contains dependencies requiring PHP 8.4. Keep all servers bound to loopback.

@@ -1,0 +1,97 @@
+name: transcriber
+
+x-backend: &backend
+  build:
+    context: .
+    dockerfile: docker/backend.Dockerfile
+  environment:
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_URL: http://127.0.0.1:3000
+    DB_CONNECTION: sqlite
+    DB_DATABASE: /data/database.sqlite
+    QUEUE_CONNECTION: database
+    DB_QUEUE_RETRY_AFTER: "180"
+    CACHE_STORE: file
+    LOG_CHANNEL: stderr
+    AI_SERVICE_URL: http://127.0.0.1:8100
+  volumes:
+    - app-data:/data
+
+services:
+  initialize:
+    <<: *backend
+    user: root
+    command: [initialize]
+    volumes:
+      - app-data:/data
+      - backups:/backups
+    restart: "no"
+
+  backend:
+    <<: *backend
+    working_dir: /app/public
+    depends_on:
+      initialize:
+        condition: service_completed_successfully
+    # All processes share this network namespace, preserving loopback checks.
+    # Only the frontend port is published, and only on the host loopback.
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: [CMD, php, -r, "exit(@file_get_contents('http://127.0.0.1:8000/up') === false ? 1 : 0);"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  ai:
+    build:
+      context: .
+      dockerfile: docker/ai.Dockerfile
+    network_mode: service:backend
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file:
+      - path: docker/ai.env
+        required: false
+    environment:
+      AI_SERVICE_HOST: 127.0.0.1
+      AI_SERVICE_PORT: "8100"
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import socket; socket.create_connection(('127.0.0.1', 8100), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    <<: *backend
+    network_mode: service:backend
+    depends_on:
+      ai:
+        condition: service_healthy
+    command: [php, artisan, "queue:work", "--tries=0", "--timeout=150", "--sleep=1"]
+    stop_grace_period: 170s
+    scale: 1
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    network_mode: service:backend
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  backups:
