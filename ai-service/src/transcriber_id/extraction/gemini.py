@@ -119,6 +119,10 @@ def extract_from_gemini(
         types.Part.from_bytes(data=image_bytes, mime_type=media_type),
     ]
     config = types.GenerateContentConfig(
+        # Finish before Laravel's 120-second timeout. Laravel owns delayed retries.
+        http_options=types.HttpOptions(
+            timeout=100_000, retry_options=types.HttpRetryOptions(attempts=1)
+        ),
         temperature=0,
         response_mime_type="application/json",
         response_schema=ExtractedInvoice,

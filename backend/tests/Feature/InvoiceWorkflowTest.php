@@ -6,8 +6,10 @@ use App\Jobs\ExtractInvoice;
 use App\Models\Invoice;
 use App\Services\InvoiceReviewService;
 use App\Services\InvoiceWorkbook;
+use App\Services\VertexRequestCooldown;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -28,13 +30,13 @@ class InvoiceWorkflowTest extends TestCase
         parent::setUp();
         Storage::fake('local');
         Http::preventStrayRequests();
-        Cache::store('file')->flush();
+        config(['cache.stores.file' => ['driver' => 'array', 'serialize' => false]]);
         $this->withHeader('X-Invoice-Client', 'local-review');
     }
 
     private function upload(): array
     {
-        return $this->postJson('/api/invoices', ['image' => UploadedFile::fake()->image('synthetic.png')])->assertCreated()->json('invoice');
+        return $this->postJson('/api/invoices', ['image' => UploadedFile::fake()->image('synthetic.png', 10 + Invoice::count(), 10)])->assertCreated()->json('invoice');
     }
 
     private function candidate(): array
@@ -358,6 +360,86 @@ class InvoiceWorkflowTest extends TestCase
         $this->postJson($url.'/extract')->assertAccepted();
     }
 
+    public function test_transient_failures_retry_with_backoff_then_stop(): void
+    {
+        foreach ([429, 408, 500, 502, 503, 504, 'timeout', 'connection'] as $failure) {
+            Queue::fake();
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            Cache::store('file')->flush();
+            $invoice = $this->upload();
+            $this->postJson('/api/invoices/'.$invoice['id'].'/extract')->assertAccepted();
+            $model = Invoice::findOrFail($invoice['id']);
+            Http::fake($failure === 'connection'
+                ? fn () => throw new ConnectionException('private details')
+                : ['*' => Http::response(['errors' => [$failure === 'timeout'
+                    ? 'Extraction failed: TimeoutError' : 'Provider HTTP '.$failure]], 422)]);
+
+            for ($attempt = 0; $attempt < 4; $attempt++) {
+                $oldToken = $model->extraction_token;
+                (new ExtractInvoice($model->id, $oldToken))->handle(app(InvoiceReviewService::class));
+                $model->refresh();
+                $this->assertSame($attempt < 3 ? 'processing' : 'failed', $model->status);
+                $this->assertSame($attempt + 1, DB::table('extraction_attempts')->where('invoice_id', $model->id)->count());
+                if ($attempt < 3) {
+                    $this->assertNotSame($oldToken, $model->extraction_token);
+                    $this->assertNull($model->extraction_started_at);
+                    $delay = $model->extraction_retry_at->getTimestamp() - now()->getTimestamp();
+                    $this->assertGreaterThanOrEqual(60 * (2 ** $attempt), $delay);
+                    $this->assertLessThanOrEqual(72 * (2 ** $attempt), $delay);
+                    $this->travelTo($model->extraction_retry_at->copy()->addSecond());
+                }
+            }
+            Queue::assertPushed(ExtractInvoice::class, 4);
+        }
+        $this->travelBack();
+    }
+
+    public function test_delayed_retry_survives_polling_and_shared_cooldown_then_succeeds(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $this->postJson('/api/invoices/'.$invoice['id'].'/extract')->assertAccepted();
+        $model = Invoice::findOrFail($invoice['id']);
+        Http::fake(['*' => Http::response(['errors' => ['Provider HTTP 429']], 422)]);
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+        $model->refresh();
+        $this->travelTo($model->extraction_retry_at->copy()->addMinutes(6));
+        VertexRequestCooldown::extendUntil(now()->addMinutes(2));
+        $this->getJson('/api/invoices')->assertOk();
+        $this->assertSame('processing', $model->fresh()->status);
+        $job = (new ExtractInvoice($model->id, $model->extraction_token))->withFakeQueueInteractions();
+        $job->handle(app(InvoiceReviewService::class));
+        $job->assertReleased(120);
+        Http::assertSentCount(1);
+        $this->assertNull($model->fresh()->extraction_started_at);
+        $this->travel(121)->seconds();
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake(['*' => Http::response(['extraction' => $this->candidate(), 'raw_model_output' => 'synthetic'])]);
+        (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+        $this->assertSame('review', $model->fresh()->status);
+        $this->assertSame(0, $model->fresh()->extraction_retry_count);
+        $this->assertDatabaseCount('extraction_attempts', 2);
+        $this->travelBack();
+    }
+
+    public function test_permanent_provider_errors_are_not_retried(): void
+    {
+        foreach ([400, 401, 403, 404, 413, 422] as $status) {
+            Queue::fake();
+            Http::swap(new Factory);
+            Http::preventStrayRequests();
+            $invoice = $this->upload();
+            $this->postJson('/api/invoices/'.$invoice['id'].'/extract')->assertAccepted();
+            $model = Invoice::findOrFail($invoice['id']);
+            Http::fake(['*' => Http::response(['errors' => ['Provider HTTP '.$status]], 422)]);
+            (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
+            $this->assertSame('failed', $model->fresh()->status);
+            Queue::assertPushed(ExtractInvoice::class, 1);
+        }
+    }
+
     public function test_invalid_model_output_has_a_specific_safe_failure_message(): void
     {
         Queue::fake();
@@ -385,6 +467,7 @@ class InvoiceWorkflowTest extends TestCase
         $model = Invoice::findOrFail($invoice['id']);
         $this->postJson('/api/invoices/'.$model->id.'/extract')->assertAccepted();
         $model->refresh();
+        $model->update(['extraction_retry_count' => 3]);
         Http::fake(fn () => throw new ConnectionException('timeout'));
         (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
         $this->assertSame('failed', $model->fresh()->status);

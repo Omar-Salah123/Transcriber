@@ -19,6 +19,7 @@ version = "0.1.0"
 source = { editable = "ai-service" }
 dependencies = [
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "langchain-google-genai" },
     { name = "langgraph" },
     { name = "pillow" },
@@ -29,6 +30,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "google-genai", specifier = ">=1,<2" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "langchain-google-genai", specifier = ">=4.3.7" },
     { name = "langgraph", specifier = ">=1.2.12" },
     { name = "pillow", specifier = ">=12.3.0" },
