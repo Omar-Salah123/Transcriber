@@ -114,6 +114,9 @@ must be confirmed again before export.
   failures may still have the generic message because their provider status was
   not retained. Retry one failed invoice to get a more specific result. No
   automatic paid retry is performed.
+- Database busy while scheduling: the affected invoice was not sent to Python.
+  Wait for the current database writer to finish, then use the waiting queue
+  button again. Keep one queue worker and do not run migrations during extraction.
 - Waiting indefinitely: start the worker. Requests interrupted after they start
   become retryable after five minutes when the queue is refreshed.
 - Conflict while saving: another tab changed the invoice. Select its queue entry

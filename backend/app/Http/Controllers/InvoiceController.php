@@ -13,6 +13,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use PDOException;
 
 class InvoiceController extends Controller
 {
@@ -105,16 +106,24 @@ class InvoiceController extends Controller
 
     public function extract(Invoice $invoice): mixed
     {
-        return DB::transaction(function () use ($invoice) {
-            $invoice = Invoice::lockForUpdate()->findOrFail($invoice->id);
-            // Never allow a retry to replace a saved human review.
-            abort_unless(in_array($invoice->status, ['pending', 'failed']), 409, 'الاستخراج جارٍ أو تمت مراجعة الفاتورة');
-            $token = (string) Str::uuid();
-            $invoice->update(['status' => 'processing', 'extraction_token' => $token, 'extraction_started_at' => null, 'extraction_error' => null]);
-            ExtractInvoice::dispatch($invoice->id, $token)->afterCommit();
+        try {
+            return DB::transaction(function () use ($invoice) {
+                $invoice = Invoice::lockForUpdate()->findOrFail($invoice->id);
+                // Never allow a retry to replace a saved human review.
+                abort_unless(in_array($invoice->status, ['pending', 'failed']), 409, 'الاستخراج جارٍ أو تمت مراجعة الفاتورة');
+                $token = (string) Str::uuid();
+                $invoice->update(['status' => 'processing', 'extraction_token' => $token, 'extraction_started_at' => null, 'extraction_error' => null]);
+                ExtractInvoice::dispatch($invoice->id, $token)->afterCommit();
 
-            return response()->json($this->review->present($invoice), 202);
-        });
+                return response()->json($this->review->present($invoice), 202);
+            }, 3);
+        } catch (PDOException $error) {
+            if (config('database.default') === 'sqlite' && in_array($error->errorInfo[1] ?? null, [5, 6], true)) {
+                abort(503, 'قاعدة البيانات مشغولة مؤقتاً. أعد محاولة جدولة الفاتورة.');
+            }
+
+            throw $error;
+        }
     }
 
     public function destroyAll(): mixed

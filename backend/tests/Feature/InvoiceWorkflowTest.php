@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use PDOException;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
@@ -196,6 +197,22 @@ class InvoiceWorkflowTest extends TestCase
         $job->handle(app(InvoiceReviewService::class));
         Http::assertSentCount(1);
         $this->postJson($url.'/extract')->assertConflict();
+    }
+
+    public function test_sqlite_lock_during_scheduling_returns_a_safe_retry_message(): void
+    {
+        Queue::fake();
+        $invoice = $this->upload();
+        $error = new PDOException('SQLSTATE[HY000]: General error: 5 database is locked while updating private invoice');
+        $error->errorInfo = ['HY000', 5, 'database is locked'];
+        DB::shouldReceive('transaction')->once()->andThrow($error);
+
+        $response = $this->postJson('/api/invoices/'.$invoice['id'].'/extract')->assertStatus(503);
+
+        $this->assertStringContainsString('قاعدة البيانات مشغولة', $response->json('message'));
+        $this->assertStringNotContainsString('private invoice', $response->getContent());
+        Queue::assertNothingPushed();
+        $this->assertSame('pending', Invoice::findOrFail($invoice['id'])->status);
     }
 
     public function test_extraction_uses_western_digits_without_changing_original_model_data(): void
