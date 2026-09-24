@@ -85,6 +85,9 @@ Do not expose this single-operator application to a network or the internet.
 5. Review and acknowledge every remaining warning, then confirm. Repeated
    confirmation cannot duplicate rows. Editing and saving confirmed data reopens review.
 6. Download the two-sheet Excel workbook. Only saved, confirmed invoices appear.
+   Interpretation columns follow the existing columns on each sheet. Valid
+   interpretations are numeric cells; invalid text stays literal and missing
+   interpretations remain blank.
 
 Unknowns remain blank. Written amounts stay separate from calculated amounts.
 The source transcription stays separate from any shorthand interpretation;

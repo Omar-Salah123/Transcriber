@@ -18,8 +18,8 @@ class InvoiceWorkbook
         $book = new Spreadsheet;
         $headers = $book->getActiveSheet()->setTitle('الفواتير');
         $items = $book->createSheet()->setTitle('الأصناف');
-        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تحذيرات أقرها المراجع']);
-        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ المكتوب', 'المبلغ المحسوب', 'ملاحظات']);
+        $this->row($headers, 1, ['المعرف', 'رقم الفاتورة', 'التاريخ المكتوب', 'البائع', 'العميل', 'الإجمالي المكتوب', 'الإجمالي المحسوب', 'اكتمال الحساب', 'المصدر', 'ملاحظات المراجع', 'تحذيرات أقرها المراجع', 'تفسير الإجمالي المكتوب']);
+        $this->row($items, 1, ['معرف الفاتورة', 'ترتيب السطر', 'الوصف', 'الكمية', 'سعر الوحدة', 'المبلغ المكتوب', 'المبلغ المحسوب', 'ملاحظات', 'تفسير سعر الوحدة', 'تفسير المبلغ المكتوب']);
         $invoiceRow = 2;
         $itemRow = 2;
         foreach ($invoices as $invoice) {
@@ -29,12 +29,14 @@ class InvoiceWorkbook
             $this->row($headers, $invoiceRow++, [$invoice->id, WesternDigits::in($invoice->invoice_number), WesternDigits::in($invoice->date_text), WesternDigits::in($invoice->seller), WesternDigits::in($invoice->customer),
                 $this->numberOrText($invoice->written_total_text), $this->numeric($invoice->calculated_total),
                 $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', WesternDigits::in($invoice->source_filename), WesternDigits::in($invoice->review_notes),
-                WesternDigits::in(implode('؛ ', array_column($this->review->warnings($invoice), 'message')))]);
+                WesternDigits::in(implode('؛ ', array_column($this->review->warnings($invoice), 'message'))),
+                $this->interpretedNumberOrText($invoice->written_total_interpreted_text)]);
             foreach ($invoice->items as $item) {
                 $this->row($items, $itemRow++, [$invoice->id, $item->row_order, WesternDigits::in($item->description),
                     $this->numberOrText($item->quantity_text), $this->numberOrText($item->unit_price_text),
                     $this->numberOrText($item->written_amount_text), $this->numeric($item->calculated_amount),
-                    WesternDigits::in($item->review_note)]);
+                    WesternDigits::in($item->review_note), $this->interpretedNumberOrText($item->unit_price_interpreted_text),
+                    $this->interpretedNumberOrText($item->written_amount_interpreted_text)]);
             }
         }
         foreach ($book->getAllSheets() as $sheet) {
@@ -61,6 +63,18 @@ class InvoiceWorkbook
         $number = $this->review->decimal($value);
 
         return $number === null ? WesternDigits::in($value) : (float) (string) $number;
+    }
+
+    private function interpretedNumberOrText(?string $value): string|float|null
+    {
+        $normalized = WesternDigits::in($value);
+        if ($normalized === null || ! preg_match('/^[0-9]+$/D', $normalized)) {
+            return $normalized;
+        }
+
+        $number = $this->review->decimal($normalized);
+
+        return $number === null ? $normalized : (float) (string) $number;
     }
 
     private function row(Worksheet $sheet, int $row, array $values): void

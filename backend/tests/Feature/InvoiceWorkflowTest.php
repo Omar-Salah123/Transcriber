@@ -264,9 +264,16 @@ class InvoiceWorkflowTest extends TestCase
             app(InvoiceWorkbook::class)->write(Invoice::with('items')->get(), $path);
             $book = IOFactory::load($path);
             $this->assertSame('140،~~~', $book->getSheet(0)->getCell('F2')->getValue());
+            $this->assertSame('تفسير الإجمالي المكتوب', $book->getSheet(0)->getCell('L1')->getValue());
             $this->assertSame(140000.0, $book->getSheet(0)->getCell('L2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(0)->getCell('L2')->getDataType());
             $this->assertSame('70،~~~', $book->getSheet(1)->getCell('E2')->getValue());
-            $this->assertSame(70000.0, $book->getSheet(1)->getCell('J2')->getValue());
+            $this->assertSame('تفسير سعر الوحدة', $book->getSheet(1)->getCell('I1')->getValue());
+            $this->assertSame(70000.0, $book->getSheet(1)->getCell('I2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('I2')->getDataType());
+            $this->assertSame('تفسير المبلغ المكتوب', $book->getSheet(1)->getCell('J1')->getValue());
+            $this->assertSame(140000.0, $book->getSheet(1)->getCell('J2')->getValue());
+            $this->assertSame(DataType::TYPE_NUMERIC, $book->getSheet(1)->getCell('J2')->getDataType());
             $book->disconnectWorksheets();
         } finally {
             unlink($path);
@@ -325,7 +332,10 @@ class InvoiceWorkflowTest extends TestCase
     {
         $invoice = $this->upload();
         $url = '/api/invoices/'.$invoice['id'];
-        $draft = $this->putJson($url, $this->candidate() + ['version' => 1])->assertOk()->json();
+        $data = $this->candidate();
+        $data['written_total_interpreted_text'] = '=SUM(1,2)';
+        $data['items'][0]['unit_price_interpreted_text'] = '=SUM(A1:A2)';
+        $draft = $this->putJson($url, $data + ['version' => 1])->assertOk()->json();
         $this->postJson($url.'/confirm', ['version' => $draft['version'], 'acknowledged' => true])->assertOk();
         Invoice::create(['source_hash' => str_repeat('a', 64), 'source_filename' => 'pending.png', 'image_path' => 'missing', 'status' => 'pending']);
         $this->get('/api/exports/invoices')->assertOk()->assertHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -340,7 +350,12 @@ class InvoiceWorkflowTest extends TestCase
             $this->assertSame('000081', $headers->getCell('B2')->getValue());
             $this->assertSame(DataType::TYPE_STRING, $headers->getCell('B2')->getDataType());
             $this->assertNull($headers->getCell('E2')->getValue());
+            $this->assertSame('=SUM(1,2)', $headers->getCell('L2')->getValue());
+            $this->assertSame(DataType::TYPE_STRING, $headers->getCell('L2')->getDataType());
             $this->assertSame(DataType::TYPE_NUMERIC, $items->getCell('E2')->getDataType());
+            $this->assertSame('=SUM(A1:A2)', $items->getCell('I2')->getValue());
+            $this->assertSame(DataType::TYPE_STRING, $items->getCell('I2')->getDataType());
+            $this->assertNull($items->getCell('J2')->getValue());
             $this->assertSame('=SUM(A1:A2)', $items->getCell('C2')->getValue());
             $this->assertSame(DataType::TYPE_STRING, $items->getCell('C2')->getDataType());
             foreach ($book->getAllSheets() as $sheet) {
@@ -361,7 +376,7 @@ class InvoiceWorkflowTest extends TestCase
     {
         Queue::fake();
         $this->upload();
-        $this->postJson('/api/invoices', ['image' => UploadedFile::fake()->image('other.jpg')])->assertCreated();
+        $this->postJson('/api/invoices', ['image' => UploadedFile::fake()->image('other.png', 2, 3)])->assertCreated();
         $this->assertDatabaseCount('invoices', 2);
 
         $paths = Invoice::pluck('image_path')->all();
