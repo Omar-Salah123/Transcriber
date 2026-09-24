@@ -22,6 +22,7 @@ def state(media_type: str = "image/png") -> dict:
         source_filename="synthetic.png",
         extraction=None,
         raw_model_output=None,
+        provider_error=None,
         errors=[],
         warnings=[],
     )
@@ -63,7 +64,7 @@ def test_timeout_becomes_safe_error_and_next_attempt_can_run() -> None:
 
 
 @pytest.mark.parametrize("status", [400, 429, 503])
-def test_provider_error_keeps_only_safe_http_status(status: int) -> None:
+def test_provider_error_keeps_public_message_safe_and_private_detail(status: int) -> None:
     def fail(*_):
         raise ClientError(
             status,
@@ -72,7 +73,63 @@ def test_provider_error_keeps_only_safe_http_status(status: int) -> None:
 
     result = build_invoice_graph(fail).invoke(state())
     assert result["errors"] == [f"Provider HTTP {status}"]
-    assert "private request details" not in str(result)
+    assert "private request details" not in str(result["errors"])
+    assert result["provider_error"] == {
+        "http_status": status,
+        "status": None,
+        "message": "private request details",
+        "response": {"error": {"code": status, "message": "private request details"}},
+    }
+
+
+def test_private_http_response_includes_provider_diagnostic() -> None:
+    private_detail = {
+        "http_status": 429,
+        "status": "RESOURCE_EXHAUSTED",
+        "message": "Resource exhausted, please try again later.",
+        "response": {
+            "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "message": "Resource exhausted, please try again later.",
+                "details": [
+                    {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "5s"}
+                ],
+            }
+        },
+    }
+    handler = InvoiceAgentHandler.__new__(InvoiceAgentHandler)
+    handler.connection = MagicMock()
+    request_body = json.dumps(
+        {"media_type": "image/png", "image_base64": "AA==", "source_filename": "synthetic.png"}
+    ).encode()
+    handler.headers = {
+        "X-Invoice-Service": "laravel",
+        "Content-Length": str(len(request_body)),
+    }
+    handler.path = "/v1/extractions"
+    handler.rfile = BytesIO(request_body)
+    handler.wfile = BytesIO()
+    handler.send_response = MagicMock()
+    handler.send_header = MagicMock()
+    handler.end_headers = MagicMock()
+
+    with (
+        patch.object(InvoiceAgentHandler, "_decode_image", return_value=b"synthetic"),
+        patch(
+            "transcriber_id.service.extract_invoice_image",
+            return_value={
+                "errors": ["Provider HTTP 429"],
+                "raw_model_output": None,
+                "provider_error": private_detail,
+            },
+        ),
+    ):
+        handler.do_POST()
+
+    body = json.loads(handler.wfile.getvalue())
+    assert body["errors"] == ["Provider HTTP 429"]
+    assert body["provider_error"] == private_detail
 
 
 def test_media_type_must_match_image_bytes() -> None:

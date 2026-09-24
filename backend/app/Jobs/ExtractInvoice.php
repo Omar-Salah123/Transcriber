@@ -38,6 +38,7 @@ class ExtractInvoice implements ShouldQueue
             return;
         }
         $raw = null;
+        $providerError = null;
         $candidate = null;
         $error = null;
         try {
@@ -51,9 +52,15 @@ class ExtractInvoice implements ShouldQueue
                 'image_base64' => base64_encode(Storage::disk('local')->get($invoice->image_path)),
             ]);
             $body = $response->json();
-            $raw = is_array($body) && is_string($body['raw_model_output'] ?? null) ? $body['raw_model_output'] : $response->body();
+            $raw = is_array($body) && array_key_exists('raw_model_output', $body)
+                ? (is_string($body['raw_model_output']) ? $body['raw_model_output'] : null)
+                : $response->body();
             if (! $response->successful()) {
                 $error = self::serviceFailureMessage($body);
+                if (is_array($body) && is_array($body['provider_error'] ?? null)) {
+                    $encoded = json_encode($body['provider_error'], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                    $providerError = $encoded === false ? null : $encoded;
+                }
             } elseif (! is_array($body) || ! is_array($body['extraction'] ?? null)) {
                 $error = 'أعادت خدمة الاستخراج استجابة غير صالحة. أعد المحاولة.';
             } else {
@@ -67,11 +74,11 @@ class ExtractInvoice implements ShouldQueue
             // Do not log provider payloads or credentials.
             $error = 'تعذر الاستخراج. تحقق من الخدمة والإعدادات ثم أعد المحاولة.';
         }
-        DB::transaction(function () use ($review, $raw, $candidate, $error): void {
+        DB::transaction(function () use ($review, $raw, $providerError, $candidate, $error): void {
             DB::table('extraction_attempts')->insertOrIgnore([
                 'invoice_id' => $this->invoiceId, 'token' => $this->token,
                 'raw_model_output' => $raw, 'extraction' => $candidate === null ? null : json_encode($candidate, JSON_UNESCAPED_UNICODE),
-                'error' => $error, 'created_at' => now(), 'updated_at' => now(),
+                'error' => $error, 'provider_error' => $providerError, 'created_at' => now(), 'updated_at' => now(),
             ]);
             $invoice = Invoice::lockForUpdate()->findOrFail($this->invoiceId);
             if ($invoice->status !== 'processing' || $invoice->extraction_token !== $this->token) {
@@ -110,7 +117,7 @@ class ExtractInvoice implements ShouldQueue
         }
         if (preg_match('/^Provider HTTP ([4-5][0-9]{2})$/D', $reason, $matches)) {
             return match ((int) $matches[1]) {
-                429 => 'بلغ Gemini حد الطلبات أو الحصة (429). تحقق من الحصة ثم أعد المحاولة لاحقاً.',
+                429 => 'قيّد Gemini الطلب مؤقتاً (429). أعد المحاولة لاحقاً.',
                 401, 403 => 'رفض Gemini صلاحية الوصول ('.$matches[1].'). تحقق من إعدادات الحساب.',
                 404 => 'نموذج Gemini المحدد غير متاح (404). تحقق من اسم النموذج.',
                 400, 413, 422 => 'رفض Gemini الصورة أو إعدادات الطلب ('.$matches[1].'). راجع الصورة والنموذج.',

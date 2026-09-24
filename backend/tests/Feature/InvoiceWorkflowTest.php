@@ -335,7 +335,12 @@ class InvoiceWorkflowTest extends TestCase
         Http::fake(['*' => Http::response([
             'errors' => ['Provider HTTP 429'],
             'raw_model_output' => null,
-            'detail' => 'private provider response',
+            'provider_error' => [
+                'http_status' => 429,
+                'status' => 'RESOURCE_EXHAUSTED',
+                'message' => 'private provider response',
+                'response' => ['error' => ['details' => [['retryDelay' => '5s']]]],
+            ],
         ], 422)]);
 
         (new ExtractInvoice($model->id, $model->extraction_token))->handle(app(InvoiceReviewService::class));
@@ -344,6 +349,10 @@ class InvoiceWorkflowTest extends TestCase
         $this->assertStringContainsString('429', $response->json('extraction_error'));
         $this->assertStringNotContainsString('private provider response', $response->getContent());
         $this->assertSame('failed', $model->fresh()->status);
+        $attempt = DB::table('extraction_attempts')->first();
+        $this->assertNull($attempt->raw_model_output);
+        $this->assertSame('private provider response', json_decode($attempt->provider_error, true)['message']);
+        $this->assertSame('5s', json_decode($attempt->provider_error, true)['response']['error']['details'][0]['retryDelay']);
         $this->postJson($url.'/extract')->assertAccepted();
     }
 

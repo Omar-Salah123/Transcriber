@@ -20,7 +20,9 @@ availability and the 10-invoice accuracy pilot remain operator acceptance work.
   unsupported precision produce warnings.
 - `original_extraction` and `raw_model_output` are independent of edits;
   `extraction_attempts` retains successful/failed responses. Private outputs are
-  omitted from browser resources. No provider response is written to application logs.
+  omitted from browser resources. New provider failures retain the SDK status,
+  message, and response details in `extraction_attempts.provider_error`. No provider
+  response is written to application logs.
 
 ## Interfaces
 

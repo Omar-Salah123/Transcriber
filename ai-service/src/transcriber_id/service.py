@@ -64,6 +64,7 @@ class InvoiceAgentHandler(BaseHTTPRequestHandler):
                     "detail": "Extraction could not be completed",
                     "errors": state["errors"],
                     "raw_model_output": state["raw_model_output"],
+                    "provider_error": state["provider_error"],
                 },
             )
             return

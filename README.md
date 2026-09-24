@@ -109,11 +109,12 @@ must be confirmed again before export.
   Back up both while all application processes are stopped. Original model messages
   and extraction attempts are private database records, independent of reviewed values.
 - Failed extraction: select the invoice to see whether the image, provider request,
-  model output, service connection, or timeout failed. A provider 429 means its
-  request limit or quota was reached; check the quota and retry later. Older
-  failures may still have the generic message because their provider status was
-  not retained. Retry one failed invoice to get a more specific result. No
-  automatic paid retry is performed.
+  model output, service connection, or timeout failed. A provider 429 can mean
+  temporary contention for Vertex AI shared capacity; retry later. Provider
+  status, message, and JSON response details for new failures are saved in the private
+  `extraction_attempts.provider_error` column, not returned to the browser or
+  written to application logs. Earlier attempts cannot recover details that
+  were discarded. No automatic paid retry is performed.
 - Database busy while scheduling: the affected invoice was not sent to Python.
   Wait for the current database writer to finish, then use the waiting queue
   button again. Keep one queue worker and do not run migrations during extraction.
