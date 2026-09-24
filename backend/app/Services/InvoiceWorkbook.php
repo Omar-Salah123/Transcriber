@@ -26,15 +26,15 @@ class InvoiceWorkbook
             if ($invoice->status !== 'confirmed') {
                 continue;
             }
-            $this->row($headers, $invoiceRow++, [$invoice->id, $this->westernDigits($invoice->invoice_number), $this->westernDigits($invoice->date_text), $this->westernDigits($invoice->seller), $this->westernDigits($invoice->customer),
+            $this->row($headers, $invoiceRow++, [$invoice->id, WesternDigits::in($invoice->invoice_number), WesternDigits::in($invoice->date_text), WesternDigits::in($invoice->seller), WesternDigits::in($invoice->customer),
                 $this->numberOrText($invoice->written_total_text), $this->numeric($invoice->calculated_total),
-                $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', $this->westernDigits($invoice->source_filename), $this->westernDigits($invoice->review_notes),
-                implode('؛ ', array_column($this->review->warnings($invoice), 'message'))]);
+                $invoice->calculated_total === null ? 'غير مكتمل' : 'مكتمل', WesternDigits::in($invoice->source_filename), WesternDigits::in($invoice->review_notes),
+                WesternDigits::in(implode('؛ ', array_column($this->review->warnings($invoice), 'message')))]);
             foreach ($invoice->items as $item) {
-                $this->row($items, $itemRow++, [$invoice->id, $item->row_order, $this->westernDigits($item->description),
+                $this->row($items, $itemRow++, [$invoice->id, $item->row_order, WesternDigits::in($item->description),
                     $this->numberOrText($item->quantity_text), $this->numberOrText($item->unit_price_text),
                     $this->numberOrText($item->written_amount_text), $this->numeric($item->calculated_amount),
-                    $this->westernDigits($item->review_note)]);
+                    WesternDigits::in($item->review_note)]);
             }
         }
         foreach ($book->getAllSheets() as $sheet) {
@@ -60,19 +60,7 @@ class InvoiceWorkbook
     {
         $number = $this->review->decimal($value);
 
-        return $number === null ? $this->westernDigits($value) : (float) (string) $number;
-    }
-
-    private function westernDigits(?string $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        return strtr($value, array_combine(
-            preg_split('//u', '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', -1, PREG_SPLIT_NO_EMPTY),
-            str_split('01234567890123456789')
-        ));
+        return $number === null ? WesternDigits::in($value) : (float) (string) $number;
     }
 
     private function row(Worksheet $sheet, int $row, array $values): void

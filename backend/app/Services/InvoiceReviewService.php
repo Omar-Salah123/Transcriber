@@ -26,7 +26,9 @@ class InvoiceReviewService
     {
         if (filled($interpreted)) {
             // The model's shorthand expansion is a whole number, not a decimal guess.
-            return preg_match('/^[0-9]+$/D', $interpreted) ? $this->decimal($interpreted) : null;
+            $normalized = WesternDigits::in($interpreted);
+
+            return preg_match('/^[0-9]+$/D', $normalized) ? $this->decimal($normalized) : null;
         }
 
         return $this->decimal($source);
@@ -134,6 +136,7 @@ class InvoiceReviewService
         $result['warnings'] = $this->warnings($invoice);
         $result['image_url'] = '/api/invoices/'.$invoice->id.'/image';
 
-        return $result;
+        // Older saved reviews may still contain Arabic/Persian digit glyphs.
+        return WesternDigits::inArray($result);
     }
 }
