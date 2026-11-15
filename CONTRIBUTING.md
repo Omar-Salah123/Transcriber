@@ -65,4 +65,4 @@ confirmation, row order, ambiguity, decimal arithmetic, and extraction failures.
 
 Use focused branches prefixed `codex/` for agent work. Review the diff for private
 data even if ignore rules are present. Summarize changes, checks, and remaining
-limitations in the pull request. No license has been selected for this project.
+limitations in the pull request. This project is licensed under the [MIT License](LICENSE).

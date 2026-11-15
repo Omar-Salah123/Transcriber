@@ -9,7 +9,12 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+dev = [
+    "nbformat>=5.10,<6",
+    "openpyxl>=3.1,<4",
+    "pytest>=8,<10",
+    "ruff>=0.11,<1",
+]
 
 [tool.uv]
 package = false

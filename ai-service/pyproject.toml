@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Private Arabic invoice extraction service"
 readme = "README.md"
 authors = [
-    { name = "Op_Bshaar", email = "bashaarabdalla5@gmail.com" }
+    { name = "Op_Bshaar" }
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
